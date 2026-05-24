@@ -7,7 +7,8 @@
 ---
  
 ## What Is Bond Balancer?
-An app made by 16-year-old Afra Nawar for struggling students to enjoy relearning chemistry through the interface of a simple game.  
+An app made by 16-year-old Afra Nawar for struggling students to enjoy relearning chemistry through 
+the interface of a simple game.  
 Bond Balancer is a fully interactive desktop chemistry learning application built in Python. It combines real mathematical equation-balancing (using rational nullspace computation) with a gamified quiz system and an interactive virtual laboratory; making chemistry accessible, visual, and competitive for students at any level.
  
 ---
