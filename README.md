@@ -44,7 +44,7 @@ Bond Balancer is a fully interactive desktop chemistry learning application buil
  
 ### Equation Balancing — Rational Nullspace Method
  
-Most equation balancers use trial and error. However, Bond Balancer is unique, because it uses **linear algebra**.
+Most equation balancers use trial and error. However, Bond Balancer is unique, because it uses **linear algebra** and stoichiometric prediction logic.
  
 Each chemical equation is converted into an **element matrix** where:
 - Rows represent elements involved
@@ -96,7 +96,7 @@ cd bond-balancer
 python bond_balancer.py
 ```
  
-The leaderboard is automatically created as `leaderboard.json` in the same directory on first run.
+The leaderboard is automatically created as `leaderboard.json` in the same directory on first run, which is a persistent JSON leaderboard.
  
 ---
  
@@ -148,11 +148,11 @@ On the other hand, The leaderboard was made after I remembered how hard students
 This project was developed as an independent science fair entry exploring the intersection of **computer science and chemistry education**. The rational nullspace balancing algorithm was researched and implemented from first principles — no chemistry libraries were used.
  
 **Skills demonstrated:**
-- Algorithm design and linear algebra implementation
+- Algorithm design, stoichiometric prediction logic and linear algebra implementation
 - GUI application development
 - Object-oriented programming
 - Data persistence and file I/O
-- Multi-threading for responsive UI
+- Multi-threading for responsive UI and threaded audio systems
 - Chemistry domain knowledge (stoichiometry, reaction types, element classification)
 ---
  
