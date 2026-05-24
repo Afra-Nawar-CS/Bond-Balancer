@@ -87,7 +87,7 @@ Balanced:  2H₂ + O₂ → 2H₂O ✓
 ### Steps
 ```bash
 # Clone the repository
-git clone https://github.com/YOURUSERNAME/bond-balancer.git
+git clone https://github.com/Afra-Nawar-CS/bond-balancer.git
  
 # Navigate into the folder
 cd bond-balancer
@@ -125,7 +125,7 @@ bond-balancer/
  
 ## Why I Built This
  
-Chemistry can feel intimidating; especially because of equation balancing, where students fail to remember how to use logical processes when they see complex compounds. I wanted to build something that showed the *mathematical structure* underneath chemical equations, while making practice genuinely engaging through competition and experimentation.
+Chemistry can feel intimidating, especially because of equation balancing, where students fail to remember how to use logical processes when they see complex compounds. I wanted to build something that showed the *mathematical structure* underneath chemical equations, while making practice genuinely engaging through competition and experimentation.
  
 The gas reactor grew from my curiosity: what if students could experiment without a physical lab? 
 On the other hand, The leaderboard was made after I remembered how hard students work when they are motivated to win a competition, because that same energy belongs in chemistry education as well!
