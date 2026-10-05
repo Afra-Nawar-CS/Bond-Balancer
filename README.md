@@ -130,8 +130,6 @@ The leaderboard is automatically created as `leaderboard.json` in the same direc
 ## Visual Display
 <img width="1901" height="1008" alt="Screenshot 2026-10-03 140635" src="https://github.com/user-attachments/assets/a4ee8461-9296-42e9-af8e-e076d6a7428e" />
 <img width="1350" height="882" alt="Screenshot 2026-10-04 104433" src="https://github.com/user-attachments/assets/43d71489-10a2-413d-9275-1615de1d7738" />
-<img width="1917" height="1016" alt="Screenshot 2026-10-05 231030" src="https://github.com/user-attachments/assets/2b203fb2-76f5-4400-8df0-f59a2c689856" />
-<img width="1917" height="1016" alt="Screenshot 2026-10-05 231030" src="https://github.com/user-attachments/assets/d82b75d7-8c92-4aad-ab79-ad15fa223c78" />
 <img width="1917" height="1016" alt="Screenshot 2026-10-05 231131" src="https://github.com/user-attachments/assets/a4ffb595-76e1-4cfc-93ef-fb62add2d016" />
 <img width="1917" height="1015" alt="Screenshot 2026-10-05 231239" src="https://github.com/user-attachments/assets/6432fdf3-9ca9-49ca-94fb-4f2fbdf4098f" />
 <img width="1917" height="1013" alt="Screenshot 2026-10-05 231256" src="https://github.com/user-attachments/assets/10525e1e-c1e6-45b8-b0ed-8c669acb4e8b" />
