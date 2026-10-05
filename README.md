@@ -240,4 +240,4 @@ Interests: Computational Chemistry, Computer Science, Environmental Technology
  
 ## License
  
-MIT License — free to use, modify, and distribute with attribution.
+MIT License; free to use, modify, and distribute with attribution.
