@@ -106,6 +106,13 @@ def play_sound(event):
             seq = [(523, 90), (659, 90), (784, 90), (988, 130)]
         elif event == "atomole_select":
             seq = [(1046, 55), (784, 55)]
+        elif event == "mole_tab":
+            # rapid "calculator keypad" blips ending on a bright ping
+            seq = [(1318, 45), (1568, 45), (1318, 45), (1760, 45), (1568, 45), (2093, 140)]
+        elif event == "pop":
+            seq = [(1500, 80), (900, 60)]
+        elif event == "h2_pop":
+            seq = [(3000, 15), (1500, 20), (200, 90)]
         elif event == "organic_open":
             # warm, earthy rolling tones — green Carbon Craft theme
             seq = [(330, 110), (392, 110), (440, 110), (523, 160)]
@@ -218,6 +225,10 @@ def archive_top_scores_and_clear():
     save_top_scores(top10)
     save_leaderboard([])
     return top10
+
+def clear_top_scores():
+    """Permanently erase the all-time Top Scores hall of fame."""
+    save_top_scores([])
 
 # ----------------------------
 # Chemistry formula parser & balancer
@@ -346,10 +357,9 @@ def balance_equation(reactants, products):
     def fmt_list(coefs, species):
         parts = []
         for c, s in zip(coefs, species):
-            parts.append(f"{(str(c) if c != 1 else '')}{pretty_formula(s)}".strip())
+            parts.append(f"{(str(c) if c != 1 else '')}{s}".strip())
         return " + ".join(parts)
-
-    steps.append("Balanced equation: " + fmt_list(rcoeffs, reactants) + " → " + fmt_list(pcoeffs, products))
+    steps.append("Balanced equation: " + fmt_list(rcoeffs, reactants) + " -> " + fmt_list(pcoeffs, products))
     return (rcoeffs, pcoeffs), steps
 
 QUIZ_UI = {
@@ -411,6 +421,47 @@ def make_button(parent, text, command, bg, fg="white",
                   takefocus=0, **kw)
     add_hover(b, bg, _shade(bg, 0.92))
     return b
+def make_rich_text(parent, bg, fg, **kw):
+    """Read-only Text box with ready-made styles for clean, readable content."""
+    t = tk.Text(parent, font=("Segoe UI", 12), wrap="word", bg=bg, fg=fg,
+                relief="flat", padx=22, pady=16, cursor="arrow", **kw)
+    t.tag_config("title", font=("Georgia", 17, "bold"), foreground=fg, spacing3=4)
+    t.tag_config("sub", font=("Segoe UI", 12, "italic"), foreground=fg, spacing3=14)
+    t.tag_config("body", font=("Segoe UI", 12), foreground=fg,
+                 spacing1=5, spacing3=2, lmargin1=14, lmargin2=34)
+    t.tag_config("para", font=("Segoe UI", 12), foreground=fg,
+                 spacing1=5, spacing3=2, lmargin1=14, lmargin2=14)
+    return t
+
+
+def add_chip(t, text, bg, fg="#ffffff"):
+    """A coloured heading label, e.g. CATHODE (−)."""
+    tag = "chip_" + bg
+    t.tag_config(tag, font=("Segoe UI", 11, "bold"), foreground=fg, background=bg)
+    t.insert(tk.END, f" {text} ", tag)
+    t.insert(tk.END, "\n")
+
+
+def add_line(t, text):
+    """A bullet point."""
+    t.insert(tk.END, "•  " + text + "\n", "body")
+
+
+def add_eq(t, text, bg, fg):
+    """An equation on a tinted background."""
+    tag = "eq_" + bg
+    t.tag_config(tag, font=("Segoe UI", 14, "bold"), foreground=fg, background=bg,
+                 lmargin1=14, lmargin2=14)
+    t.insert(tk.END, f"  {text}  ", tag)
+    t.insert(tk.END, "\n")
+
+
+def insert_formula(t, text, tag):
+    """Insert a general formula such as CnH2n+2 with real subscripts."""
+    sub = tag + "_sub"
+    t.tag_config(sub, offset=-5, font=("Segoe UI", 12, "bold"))
+    for i, part in enumerate(re.split(r"((?<=[A-Z])[0-9n+]+)", text)):
+        t.insert(tk.END, part, (tag, sub) if i % 2 else tag)
 
 # ----------------------------
 # Pools: quiz questions, solver options, gas reaction rules
@@ -450,7 +501,9 @@ MCQ_POOL = [
      ["Oxidation of magnesium", "Reduction of magnesium", "Neutralization", "Decomposition"], "A"),
     ("Which of the following pairs will form a precipitate?",
      ["NaCl + HCl", "Na₂SO₄ + BaCl₂", "H₂SO₄ + NaOH", "KNO₃ + HCl"], "B"),
-    ("What is the ionic equation for the reaction: AgNO₃(aq) + NaCl(aq) → AgCl(s) + NaNO₃(aq)?",
+    ("In the reaction: AgNO₃ + NaCl → AgCl + NaNO₃, the precipitate formed is:",
+     ["NaNO₃", "NaCl", "AgCl", "AgNO₃"], "C"),
+    ("The ionic equation for the above reaction is:",
      ["Ag⁺ + NO₃⁻ → AgNO₃", "Na⁺ + Cl⁻ → NaCl", "Ag⁺ + Cl⁻ → AgCl", "Na⁺ + NO₃⁻ → NaNO₃"], "C"),
     ("Which salt is insoluble in water?",
      ["NaCl", "KNO₃", "CaCO₃", "(NH₄)₂SO₄"], "C"),
@@ -821,6 +874,365 @@ ORGANIC_DATA = {
     },
 }
 
+
+# ----------------------------
+# Fizz Factory (virtual reaction lab) data
+# ----------------------------
+# species -> (colour on screen, "solid" or "aq")
+GAS_STYLE = {
+    "HCl":   ("#ffd9a0", "aq"),
+    "H2SO4": ("#ffb5a7", "aq"),
+    "NaOH":  ("#b8c0ff", "aq"),
+    "Zn":    ("#a9b2bf", "solid"),
+    "Mg":    ("#d5d9df", "solid"),
+    "CuO":   ("#9a8f86", "solid"),
+    "CaCO3": ("#f3efe0", "solid"),
+    "AgNO3": ("#d0f4de", "aq"),
+    "NaCl":  ("#bde0fe", "aq"),
+    "BaCl2": ("#e0c3fc", "aq"),
+    "CuSO4": ("#74c0fc", "aq"),
+}
+
+# species -> (category, label shown on the chip)
+GAS_INFO = {
+    "HCl": ("acid", "acid"), "H2SO4": ("acid", "acid"),
+    "NaOH": ("alkali", "alkali"),
+    "Zn": ("metal", "metal"), "Mg": ("metal", "metal"),
+    "CuO": ("oxide", "metal oxide"), "CaCO3": ("carbonate", "carbonate"),
+    "AgNO3": ("salt", "salt (aq)"), "NaCl": ("salt", "salt (aq)"),
+    "BaCl2": ("salt", "salt (aq)"), "CuSO4": ("salt", "salt (aq)"),
+}
+SALT_METAL = {"NaCl": "sodium", "BaCl2": "barium", "AgNO3": "silver", "CuSO4": "copper"}
+
+RX_TYPES = {
+    "neut": {
+        "title": "Acid + alkali → salt + water  (neutralisation)",
+        "tag": "Ionic + covalent",
+        "text": "The salt is IONIC: metal ions and acid-radical ions held by electrostatic attraction, "
+                "dissolved as free ions. The water is COVALENT: H⁺ from the acid and OH⁻ from the "
+                "alkali join by sharing electrons (H–O–H)."},
+    "acid_metal": {
+        "title": "Acid + metal → salt + hydrogen",
+        "tag": "Ionic + covalent",
+        "text": "The salt is IONIC: each metal atom loses electrons to form a positive ion (oxidation). "
+                "The hydrogen gas is COVALENT: H⁺ ions gain those electrons (reduction) and pairs of "
+                "H atoms share electrons (H–H)."},
+    "acid_base": {
+        "title": "Acid + base (metal oxide) → salt + water",
+        "tag": "Ionic + covalent",
+        "text": "The base CuO is IONIC (Cu²⁺ and O²⁻). The oxide ion takes H⁺ from the acid to make "
+                "COVALENT water, and the Cu²⁺ ions pair with the acid's negative ions to form an "
+                "IONIC salt in solution."},
+    "acid_carb": {
+        "title": "Acid + carbonate → salt + water + carbon dioxide",
+        "tag": "Ionic + covalent",
+        "text": "Carbonates act as bases. CaCO₃ and the salt formed are IONIC. The carbonate ion reacts "
+                "with H⁺ to make COVALENT water and COVALENT carbon dioxide (O=C=O) gas."},
+    "precip": {
+        "title": "Precipitation  (ionic double decomposition)",
+        "tag": "Ionic",
+        "text": "Everything here is IONIC. The two solutions swap partners, and the ions of the insoluble "
+                "product clump together by electrostatic attraction and fall out as a solid precipitate. "
+                "The other ions do not change; they are spectator ions."},
+    "displace": {
+        "title": "Metal displacement  (redox)",
+        "tag": "Ionic",
+        "text": "All IONIC. The more reactive metal loses electrons (oxidation) and goes into solution as "
+                "ions. The less reactive metal's ions gain those electrons (reduction) and are deposited "
+                "as solid metal (metallic bonding)."},
+    "amph": {
+        "title": "Amphoteric metal + hot concentrated alkali → zincate + hydrogen",
+        "tag": "Ionic + covalent",
+        "text": "Zinc is amphoteric, so it reacts with strong alkalis as well as acids. The sodium "
+                "zincate is IONIC (Na⁺ and ZnO₂²⁻ ions). The hydrogen gas is COVALENT (H–H). "
+                "Magnesium is purely basic, so it does not react with alkalis."},
+    "dry_displace": {
+        "title": "Solid-state displacement  (redox, needs heating)",
+        "tag": "Ionic + metallic",
+        "text": "The more reactive metal takes the oxygen from copper(II) oxide. The metal loses "
+                "electrons (oxidation) and forms an IONIC oxide. The Cu²⁺ in CuO gains electrons "
+                "(reduction) and becomes copper atoms held by METALLIC bonding. Once started, "
+                "the reaction is strongly exothermic (thermite-like)."},
+}
+
+GAS_REACTIONS = {}
+
+def _rx(a, b, eq, t, see, net="", cond="", liq="#eaf8ff", frm=None, ppt=None, gas=False, dep=None):
+    GAS_REACTIONS[frozenset((a, b))] = {
+        "eq": eq, "t": t, "see": see, "net": net, "cond": cond,
+        "liq": liq, "frm": frm, "ppt": ppt, "gas": gas, "dep": dep}
+
+_BLUE, _GREEN = "#8ecbff", "#7fd8c4"
+
+# ---- acid + alkali (neutralisation) ----
+_rx("HCl", "NaOH", "HCl(aq) + NaOH(aq) → NaCl(aq) + H2O(l)", "neut",
+    "No visible change: the solution stays colourless but warms up (exothermic). An indicator would change colour at pH 7.",
+    "H⁺ + OH⁻ → H₂O",
+    "Find the end-point with a burette and indicator, then evaporate the solution to get sodium chloride crystals.")
+_rx("H2SO4", "NaOH", "H2SO4(aq) + 2NaOH(aq) → Na2SO4(aq) + 2H2O(l)", "neut",
+    "No visible change: the solution stays colourless but warms up. Sulfuric acid is dibasic, so it needs 2 mol of NaOH.",
+    "H⁺ + OH⁻ → H₂O",
+    "Titrate to the end-point, then crystallise the sodium sulfate.")
+
+# ---- acid + metal ----
+_rx("HCl", "Zn", "2HCl(aq) + Zn(s) → ZnCl2(aq) + H2(g)", "acid_metal",
+    "Steady fizzing as hydrogen bubbles form on the zinc, which slowly shrinks into a colourless solution. A lighted splint gives a squeaky pop.",
+    "Zn + 2H⁺ → Zn²⁺ + H₂",
+    "Moderate at room temperature. Filter off excess zinc, then crystallise the zinc chloride.", gas=True)
+_rx("HCl", "Mg", "2HCl(aq) + Mg(s) → MgCl2(aq) + H2(g)", "acid_metal",
+    "Vigorous fizzing, the magnesium vanishes quickly and the flask gets warm. A lighted splint gives a squeaky pop.",
+    "Mg + 2H⁺ → Mg²⁺ + H₂",
+    "Very fast and exothermic, so use small pieces of ribbon.", gas=True)
+_rx("H2SO4", "Zn", "H2SO4(aq) + Zn(s) → ZnSO4(aq) + H2(g)", "acid_metal",
+    "Steady fizzing as hydrogen forms, and the zinc dissolves to leave a colourless zinc sulfate solution.",
+    "Zn + 2H⁺ → Zn²⁺ + H₂",
+    "Use dilute acid. Filter off excess zinc, then crystallise.", gas=True)
+_rx("H2SO4", "Mg", "H2SO4(aq) + Mg(s) → MgSO4(aq) + H2(g)", "acid_metal",
+    "Vigorous fizzing, the magnesium disappears quickly, and the solution warms up.",
+    "Mg + 2H⁺ → Mg²⁺ + H₂",
+    "Use dilute acid and small pieces of magnesium.", gas=True)
+
+# ---- acid + base (metal oxide) ----
+_rx("HCl", "CuO", "2HCl(aq) + CuO(s) → CuCl2(aq) + H2O(l)", "acid_base",
+    "The black powder slowly dissolves and the solution turns blue-green (copper(II) chloride). No gas is given off.",
+    "CuO + 2H⁺ → Cu²⁺ + H₂O",
+    "Warm the acid gently and add CuO until some is left over (excess), then filter.", liq=_GREEN)
+_rx("H2SO4", "CuO", "H2SO4(aq) + CuO(s) → CuSO4(aq) + H2O(l)", "acid_base",
+    "The black powder dissolves on gentle warming and the solution turns blue (copper(II) sulfate). No gas is given off.",
+    "CuO + 2H⁺ → Cu²⁺ + H₂O",
+    "Warm the acid, add CuO until it stops dissolving, filter, then crystallise the blue copper sulfate.", liq=_BLUE)
+
+# ---- acid + carbonate ----
+_rx("HCl", "CaCO3", "2HCl(aq) + CaCO3(s) → CaCl2(aq) + H2O(l) + CO2(g)", "acid_carb",
+    "Vigorous fizzing as carbon dioxide is released. The marble shrinks, leaving a colourless calcium chloride solution.",
+    "CaCO₃ + 2H⁺ → Ca²⁺ + H₂O + CO₂",
+    "Bubble the gas through limewater: it turns milky, which confirms CO₂.", gas=True)
+
+# ---- precipitation ----
+_rx("AgNO3", "NaCl", "AgNO3(aq) + NaCl(aq) → AgCl(s) + NaNO3(aq)", "precip",
+    "A white, curdy precipitate of silver chloride forms at once and slowly settles. The solution above it is colourless sodium nitrate.",
+    "Ag⁺ + Cl⁻ → AgCl",
+    "This is the standard test for chloride ions (acidify with dilute nitric acid first).", ppt="#fdfdfd")
+_rx("AgNO3", "HCl", "AgNO3(aq) + HCl(aq) → AgCl(s) + HNO3(aq)", "precip",
+    "A white precipitate of silver chloride forms. The acid supplies the chloride ions, and nitric acid stays in solution.",
+    "Ag⁺ + Cl⁻ → AgCl",
+    "Filter off the precipitate to separate it from the acid.", ppt="#fdfdfd")
+_rx("AgNO3", "BaCl2", "2AgNO3(aq) + BaCl2(aq) → 2AgCl(s) + Ba(NO3)2(aq)", "precip",
+    "A thick white precipitate of silver chloride forms. Barium nitrate stays dissolved.",
+    "Ag⁺ + Cl⁻ → AgCl",
+    "Two chloride ions are released per BaCl₂, so 2 mol of AgNO₃ are needed.", ppt="#fdfdfd")
+_rx("BaCl2", "H2SO4", "BaCl2(aq) + H2SO4(aq) → BaSO4(s) + 2HCl(aq)", "precip",
+    "A dense white precipitate of barium sulfate appears. The hydrochloric acid formed stays in solution.",
+    "Ba²⁺ + SO₄²⁻ → BaSO₄",
+    "This is the standard test for sulfate ions (acidify with dilute HCl first).", ppt="#fdfdfd")
+_rx("BaCl2", "CuSO4", "BaCl2(aq) + CuSO4(aq) → BaSO4(s) + CuCl2(aq)", "precip",
+    "A white precipitate of barium sulfate forms in a solution that turns from blue to blue-green (copper(II) chloride).",
+    "Ba²⁺ + SO₄²⁻ → BaSO₄",
+    "Filter off the white solid; the filtrate is blue-green copper(II) chloride.", liq=_GREEN, frm=_BLUE, ppt="#fdfdfd")
+_rx("CuSO4", "NaOH", "CuSO4(aq) + 2NaOH(aq) → Cu(OH)2(s) + Na2SO4(aq)", "precip",
+    "A pale blue, jelly-like precipitate of copper(II) hydroxide forms and the blue colour of the solution fades.",
+    "Cu²⁺ + 2OH⁻ → Cu(OH)₂",
+    "Test for Cu²⁺ ions. The precipitate does not dissolve in excess NaOH.", frm=_BLUE, ppt="#5eb0ff")
+_rx("AgNO3", "NaOH", "2AgNO3(aq) + 2NaOH(aq) → Ag2O(s) + 2NaNO3(aq) + H2O(l)", "precip",
+    "A brown precipitate of silver(I) oxide forms (silver hydroxide is unstable and loses water).",
+    "2Ag⁺ + 2OH⁻ → Ag₂O + H₂O",
+    "The brown precipitate does not dissolve in excess NaOH.", ppt="#8b5a2b")
+
+# ---- metal displacement ----
+_rx("CuSO4", "Zn", "CuSO4(aq) + Zn(s) → ZnSO4(aq) + Cu(s)", "displace",
+    "The blue colour fades as pink-brown copper coats the zinc and collects in the flask. A colourless zinc sulfate solution is left.",
+    "Zn + Cu²⁺ → Zn²⁺ + Cu",
+    "Zinc is above copper in the reactivity series, so it displaces it.", frm=_BLUE, dep="#c8693c")
+_rx("CuSO4", "Mg", "CuSO4(aq) + Mg(s) → MgSO4(aq) + Cu(s)", "displace",
+    "The blue colour fades as pink-brown copper is deposited, leaving colourless magnesium sulfate solution. The flask warms up.",
+    "Mg + Cu²⁺ → Mg²⁺ + Cu",
+    "Magnesium is much more reactive than copper, so the reaction is quick.", frm=_BLUE, dep="#c8693c")
+_rx("AgNO3", "Zn", "2AgNO3(aq) + Zn(s) → Zn(NO3)2(aq) + 2Ag(s)", "displace",
+    "Shiny grey crystals of silver grow on the zinc, leaving a colourless zinc nitrate solution.",
+    "Zn + 2Ag⁺ → Zn²⁺ + 2Ag",
+    "Zinc is above silver in the reactivity series, so it displaces it.", dep="#c0c7d1")
+_rx("AgNO3", "Mg", "2AgNO3(aq) + Mg(s) → Mg(NO3)2(aq) + 2Ag(s)", "displace",
+    "Shiny grey crystals of silver form on the magnesium, leaving a colourless magnesium nitrate solution.",
+    "Mg + 2Ag⁺ → Mg²⁺ + 2Ag",
+    "Magnesium is above silver in the reactivity series, so it displaces it.", dep="#c0c7d1")
+# ---- H2SO4 + CaCO3: now gives CO2, so the limewater test works ----
+_rx("H2SO4", "CaCO3", "H2SO4(aq) + CaCO3(s) → CaSO4(s) + H2O(l) + CO2(g)", "acid_carb",
+    "Fizzing as carbon dioxide is released, but it slows as a white coating of calcium sulfate builds up on the marble and in the flask.",
+    "CaCO₃ + 2H⁺ + SO₄²⁻ → CaSO₄ + H₂O + CO₂",
+    "Bubble the gas through limewater: it turns milky, which confirms CO₂. Insoluble CaSO₄ coats the marble, so the reaction soon slows down.",
+    ppt="#f5f1e3", gas=True)
+
+# ---- AgNO3 + H2SO4 -> silver sulfate precipitate ----
+_rx("AgNO3", "H2SO4", "2AgNO3(aq) + H2SO4(aq) → Ag2SO4(s) + 2HNO3(aq)", "precip",
+    "A white precipitate of silver sulfate forms. It is only slightly soluble, so it shows clearly with fairly concentrated solutions. Nitric acid stays in solution.",
+    "2Ag⁺ + SO₄²⁻ → Ag₂SO₄",
+    "Use fairly concentrated solutions: Ag₂SO₄ dissolves a little (about 0.02 mol/dm³), so very dilute ones may stay clear.",
+    ppt="#fdfdfd")
+
+# ---- Zn + NaOH (amphoteric zinc) ----
+_rx("Zn", "NaOH", "Zn(s) + 2NaOH(aq) → Na2ZnO2(aq) + H2(g)", "amph",
+    "On warming with concentrated NaOH, the zinc slowly dissolves with steady fizzing of hydrogen, leaving a colourless sodium zincate solution. A lighted splint gives a squeaky pop.",
+    "Zn + 2OH⁻ → ZnO₂²⁻ + H₂",
+    "Needs hot, concentrated NaOH. Zinc is amphoteric, so it reacts with both acids and strong alkalis.",
+    gas=True)
+
+# ---- Zn / Mg + CuO (heated, thermite-like) ----
+_rx("Zn", "CuO", "Zn(s) + CuO(s) → ZnO(s) + Cu(s)", "dry_displace",
+    "When the dry powders are heated, the black mixture glows and sparks as a vigorous exothermic reaction starts. Zinc oxide (yellow when hot, white when cold) and pink-brown copper are left.",
+    "Zn + CuO → ZnO + Cu",
+    "Heat the dry powders strongly; the reaction then keeps itself going. Zinc is more reactive than copper, so it takes the oxygen.",
+    liq="#d9b99b")
+_rx("Mg", "CuO", "Mg(s) + CuO(s) → MgO(s) + Cu(s)", "dry_displace",
+    "On heating, the mixture flashes brightly and gets extremely hot. White magnesium oxide and pink-brown copper are left.",
+    "Mg + CuO → MgO + Cu",
+    "Much more violent than zinc. Use tiny amounts and keep a safe distance.",
+    liq="#d8b8a6")
+
+for _pair in (("Zn", "CuO"), ("Mg", "CuO")):
+    GAS_REACTIONS[frozenset(_pair)]["dry"] = True
+
+NO_RX_SPECIAL = {
+    frozenset(("H2SO4", "NaCl")):
+        "Both are in aqueous solution, so they are just free ions (Na⁺, Cl⁻, H⁺, SO₄²⁻) and nothing new forms. "
+        "A reaction only happens with concentrated H₂SO₄ and solid NaCl (usually heated), giving NaHSO₄ and HCl gas.",
+    frozenset(("Mg", "NaOH")):
+        "Magnesium and its oxide are purely basic, not amphoteric, so they do not react with aqueous alkali. "
+        "Only zinc (an amphoteric metal) reacts with NaOH.",
+}
+
+
+RX_VISUALS = {
+    frozenset(("HCl", "NaOH")):    ("#cfe8ff", "NaCl",     "#2f8fff", "Salt", "colourless solution"),
+    frozenset(("H2SO4", "NaOH")):  ("#e3d8ff", "Na2SO4",   "#8b5cf6", "Salt", "colourless solution"),
+    frozenset(("HCl", "Zn")):      ("#d2f5df", "ZnCl2",    "#10b981", "Salt", "colourless solution"),
+    frozenset(("HCl", "Mg")):      ("#fff0b8", "MgCl2",    "#f5a800", "Salt", "colourless solution"),
+    frozenset(("H2SO4", "Zn")):    ("#c9f3ee", "ZnSO4",    "#0d9488", "Salt", "colourless solution"),
+    frozenset(("H2SO4", "Mg")):    ("#ffd9e8", "MgSO4",    "#ec4899", "Salt", "colourless solution"),
+    frozenset(("HCl", "CuO")):     ("#7fd8c4", "CuCl2",    "#0f9f7a", "Salt", "blue-green solution"),
+    frozenset(("H2SO4", "CuO")):   ("#6fb8ff", "CuSO4",    "#1d6fd6", "Salt", "blue solution"),
+    frozenset(("HCl", "CaCO3")):   ("#fde7a6", "CaCl2",    "#d99a00", "Salt", "colourless solution"),
+    frozenset(("AgNO3", "NaCl")):  ("#ffdcc2", "NaNO3",    "#f97316", "Salt", "colourless solution"),
+    frozenset(("AgNO3", "HCl")):   ("#ecd5ff", "HNO3",     "#a855f7", "Acid", "colourless solution"),
+    frozenset(("AgNO3", "BaCl2")): ("#d9f7b5", "Ba(NO3)2", "#65a30d", "Salt", "colourless solution"),
+    frozenset(("BaCl2", "H2SO4")): ("#ffe0b0", "HCl",      "#ea580c", "Acid", "colourless solution"),
+    frozenset(("BaCl2", "CuSO4")): ("#7fd8c4", "CuCl2",    "#0f9f7a", "Salt", "blue-green solution"),
+    frozenset(("CuSO4", "NaOH")):  ("#d3dcff", "Na2SO4",   "#4f46e5", "Salt", "colourless solution"),
+    frozenset(("AgNO3", "NaOH")):  ("#fff1b0", "NaNO3",    "#ca8a04", "Salt", "colourless solution"),
+    frozenset(("CuSO4", "Zn")):    ("#dcf7c4", "ZnSO4",    "#4d9a0c", "Salt", "colourless solution"),
+    frozenset(("CuSO4", "Mg")):    ("#ffd0e6", "MgSO4",    "#d6247e", "Salt", "colourless solution"),
+    frozenset(("AgNO3", "Zn")):    ("#e6d2ff", "Zn(NO3)2", "#9333ea", "Salt", "colourless solution"),
+    frozenset(("AgNO3", "Mg")):    ("#c9ebff", "Mg(NO3)2", "#0284c7", "Salt", "colourless solution"),
+    frozenset(("AgNO3", "H2SO4")): ("#ffe3f1", "HNO3", "#db2777", "Acid", "colourless solution"),
+    frozenset(("Zn", "NaOH")): ("#e0f2fe", "Na2ZnO2", "#0ea5e9", "Salt", "colourless solution"),
+    frozenset(("H2SO4", "CaCO3")): ("#fff3c4", "CaSO4", "#ca8a04", "Salt", "slightly soluble, "
+                                                                           "mostly solid"),
+}
+
+for _k, (_liq, _salt, _scol, _lab, _word) in RX_VISUALS.items():
+    GAS_REACTIONS[_k].update(liq=_liq, salt=_salt, salt_col=_scol,
+                             salt_label=_lab, salt_word=_word)
+
+# which gas is given off (drives limewater test vs lighted-splint test)
+for _k, _r in GAS_REACTIONS.items():
+    _r["gas_type"] = (("co2" if "CaCO3" in _k else "h2") if _r["gas"] else None)
+
+def gas_no_reaction_reason(a, b):
+    """Plain-English reason why two chosen reactants do not react."""
+    special = NO_RX_SPECIAL.get(frozenset((a, b)))
+    if special:
+        return special
+    ca, cb = GAS_INFO[a][0], GAS_INFO[b][0]
+    cats = {ca, cb}
+    if ca == cb:
+        return {"acid": "Two acids: neither can neutralise the other.",
+                "metal": "Two metals: there are no ions to swap and nothing for either to reduce.",
+                "salt": "Both are salt solutions and every possible product is soluble, so the ions "
+                        "just stay mixed (spectator ions)."}.get(ca, "No reaction under normal conditions.")
+    if cats == {"metal", "alkali"}:
+        return "Alkalis do not attack these metals under normal lab conditions."
+    if "metal" in cats and cats & {"oxide", "carbonate"}:
+        return "A solid mixed with a solid does not react at room temperature (the oxide would need strong heating)."
+    if "metal" in cats and "salt" in cats:
+        metal, salt = (a, b) if ca == "metal" else (b, a)
+        return f"{metal} is less reactive than {SALT_METAL[salt]}, so it cannot displace it from its salt."
+    if "acid" in cats and "salt" in cats:
+        return "No precipitate, gas or water can form, so the ions just stay dissolved together."
+    if "alkali" in cats and cats & {"oxide", "carbonate"}:
+        return "An alkali cannot neutralise a base or a carbonate: there is no acid present."
+    if "alkali" in cats and "salt" in cats:
+        return "Every possible product is soluble, so nothing new forms and the ions stay in solution."
+    if cats & {"oxide", "carbonate"} and "salt" in cats:
+        return "The solid is insoluble, so it releases no ions to react with the dissolved salt."
+    if cats == {"oxide", "carbonate"}:
+        return "Two insoluble solids do not react with each other."
+    return "No reaction under normal conditions."
+
+
+def _mix(c1, c2, k):
+    """Blend colour c1 towards c2 by fraction k (0 = c1, 1 = c2)."""
+    k = max(0.0, min(1.0, k))
+    a = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(c2[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#%02x%02x%02x" % tuple(int(a[i] + (b[i] - a[i]) * k) for i in range(3))
+
+
+def _path_point(pts, u):
+    """Point a fraction u (0 to 1) of the way along a polyline."""
+    seg = [math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) for i in range(len(pts) - 1)]
+    d = u * (sum(seg) or 1)
+    for i, s in enumerate(seg):
+        if d <= s or i == len(seg) - 1:
+            f = min(1.0, d / s) if s else 1.0
+            return (pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f,
+                    pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f)
+        d -= s
+
+def fit_window(win, w, h, min_w=600, min_h=450):
+    """Open at (w x h) but never bigger than the screen; centre it."""
+    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+    w, h = min(w, sw - 40), min(h, sh - 100)
+    win.geometry(f"{w}x{h}+{(sw - w) // 2}+{max(0, (sh - h) // 2 - 20)}")
+    win.minsize(min(min_w, w), min(min_h, h))
+
+
+def enable_fullscreen(win):
+    """F11 toggles fullscreen, Esc leaves it. Returns the toggle function."""
+    win._fs = False
+
+    def toggle(event=None):
+        win._fs = not win._fs
+        win.attributes("-fullscreen", win._fs)
+        return "break"
+
+    def leave(event=None):
+        win._fs = False
+        win.attributes("-fullscreen", False)
+        return "break"
+
+    win.bind("<F11>", toggle)
+    win.bind("<Escape>", leave)
+    return toggle
+
+
+def make_scrollable(parent, bg):
+    """Returns (outer, inner). Pack `outer`; build your widgets inside `inner`."""
+    outer = tk.Frame(parent, bg=bg)
+    cv = tk.Canvas(outer, bg=bg, highlightthickness=0)
+    vsb = ttk.Scrollbar(outer, orient="vertical", command=cv.yview)
+    cv.configure(yscrollcommand=vsb.set)
+    vsb.pack(side="right", fill="y")
+    cv.pack(side="left", fill="both", expand=True)
+    inner = tk.Frame(cv, bg=bg)
+    wid = cv.create_window((0, 0), window=inner, anchor="nw")
+    inner.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")))
+    cv.bind("<Configure>", lambda e: cv.itemconfig(wid, width=e.width))
+
+    def wheel(e):
+        if str(e.widget).startswith(str(outer)) and not isinstance(e.widget, (tk.Text, tk.Listbox)):
+            cv.yview_scroll(int(-e.delta / 120), "units")
+    cv.bind_all("<MouseWheel>", wheel, add="+")
+    return outer, inner
+
 # ----------------------------
 # Application GUI and logic
 # (continuation from previous definitions)
@@ -833,6 +1245,7 @@ class BondBalancerApp:
         # before to make room for the new title banner)
         self.root.geometry("1040x860")
         self.root.configure(bg="#88AAFF")
+        self.toggle_fs = enable_fullscreen(self.root)
         # Fonts
         avail = list(font.families())
         self.title_face = "Comic Sans MS" if "Comic Sans MS" in avail else "Segoe UI"
@@ -892,6 +1305,7 @@ class BondBalancerApp:
         # everything below the banner sits vertically centered, giving
         # balanced space above and below the whole block of content.
         # ---------------------------------------------------------------
+
         content = tk.Frame(self.root, bg="#88AAFF")
         content.pack(fill="both", expand=True)
 
@@ -1036,7 +1450,7 @@ class BondBalancerApp:
 
         # Bigger, columnar leaderboard display (Rank / Name / Score / Bonus / Date)
         lb_style = ttk.Style()
-        lb_style.configure("Leaderboard.Treeview", font=self.header_font, rowheight=28,
+        lb_style.configure("Leaderboard.Treeview", font=self.header_font, rowheight=34,
                             background="#f6cdd2", fieldbackground="#f6cdd2", foreground="#800000")
         lb_style.configure("Leaderboard.Treeview.Heading", font=self.btn_font)
 
@@ -1072,6 +1486,9 @@ class BondBalancerApp:
         tk.Button(footer, text="🚪 Quit", font=self.btn_font, bg="#6fa8dc", fg="#0A2472",
                   relief="flat", activebackground="#5590c8", padx=14, pady=6,
                   command=lambda: (play_sound("window_close"), self.root.quit())).grid(row=0, column=2, padx=10)
+        tk.Button(footer, text="⛶ Fullscreen (F11)", font=self.btn_font, bg="#c3b1e1", fg="#2e1065",
+                  relief="flat", padx=14, pady=6,
+                  command=self.toggle_fs).grid(row=0, column=3, padx=10)
 
     def toggle_sounds(self):
         global SOUNDS_ENABLED
@@ -1094,20 +1511,20 @@ class BondBalancerApp:
                 tstr = str(t)
             self.lb_tree.insert("", tk.END, values=(i, name, f"{score}/10", f"+{bonus}", tstr))
 
-    def reset_leaderboard(self):
-        """Archive the current leaderboard's best scores into the permanent
-        Top Scores hall of fame, then clear all names from the active
-        leaderboard so it can start fresh."""
+    def reset_leaderboard(self, parent=None):
+        """Archive the best scores to the Top Scores hall of fame, then clear the leaderboard."""
+        parent = parent or self.root
         lb = load_leaderboard()
         if not lb:
-            messagebox.showinfo("Leaderboard Empty", "There are no scores on the leaderboard to reset.")
+            messagebox.showinfo("Leaderboard Empty",
+                                "There are no scores on the leaderboard to reset.", parent=parent)
             return
         play_sound("reset_open")
         res = messagebox.askyesno(
             "Reset Leaderboard?",
             "This will save the best scorers into the Top Scores hall of fame, "
-            "then remove all names from the current leaderboard. Continue?"
-        )
+            "then remove all names from the current leaderboard. Continue?",
+            parent=parent)
         if not res:
             play_sound("confirm_no")
             return
@@ -1115,7 +1532,8 @@ class BondBalancerApp:
         archive_top_scores_and_clear()
         self.refresh_leaderboard_display()
         messagebox.showinfo("Leaderboard Reset",
-                            "🧹 Leaderboard cleared! Top scorers have been saved to the Top Scores hall of fame.")
+                            "🧹 Leaderboard cleared! Top scorers have been saved to the Top Scores hall of fame.",
+                            parent=parent)
 
      # -------------------------
     # QUIZ: window shell
@@ -1131,6 +1549,7 @@ class BondBalancerApp:
         self.topic_var = tk.StringVar(value=QUIZ_TOPIC_NAMES[0])
 
         self.quiz_win = tk.Toplevel(self.root)
+        enable_fullscreen(self.quiz_win)
         self.quiz_win.title("Quiz Time! — Can You Handle the Reactions?")
         self.quiz_win.geometry("940x780")
         self.quiz_win.minsize(820, 680)
@@ -1143,8 +1562,9 @@ class BondBalancerApp:
 
         footer = tk.Frame(self.quiz_win, bg=c["bg"])
         footer.pack(fill="x", pady=(0, 8))
-        ttk.Button(footer, text="🏆 Refresh Leaderboard",
-                   command=self.refresh_leaderboard_display).pack()
+        make_button(footer, "🔄 Reset Hall of Lab Legends",
+                    lambda: self.reset_leaderboard(parent=self.quiz_win),
+                    c["accent"], font=("Helvetica", 11, "bold")).pack()
 
         self._build_quiz_setup()
 
@@ -1586,6 +2006,7 @@ class BondBalancerApp:
         c = SOLVER_UI
 
         w = tk.Toplevel(self.root)
+        enable_fullscreen(w)
         w.title("Equation Solver — Step-by-step")
         w.geometry("1100x680")
         w.minsize(900, 560)
@@ -1853,205 +2274,745 @@ class BondBalancerApp:
 
     # ----------------------------
     # Gas Reaction Window
+    # -------------------------
+    # Fizz Factory — virtual gas lab with pictorial reactions
+    # -------------------------
     def open_gas_window(self):
-        # 🌊 Create top-level window
-        play_sound("gas_open")  # sound when window opens
+        old = getattr(self, "gas_win", None)
+        if old is not None:
+            try:
+                if old.winfo_exists():
+                    old.lift()
+                    return
+            except tk.TclError:
+                pass
+
+        play_sound("gas_open")
+        bg, ink = "#7df3e1", "#064e46"
         w = tk.Toplevel(self.root)
-        w.title("Interactive Gas Reactions — Mix & Learn")
-        w.geometry("940x640")
+        enable_fullscreen(w)
+        w.title("Fizz Factory — Virtual Reaction Lab")
+        fit_window(w, 1000, 900, 960, 500)
+        enable_fullscreen(w)
+        w.configure(bg=bg)
+        self.gas_win = w
+        self.gas_order = []
+        self.lab = {"running": True, "job": None, "mode": "idle", "t": 0.0, "t0": 0.0,
+                    "tick": 0.0, "a": None, "b": None, "kind": "none", "rx": None,
+                    "parts": [], "na": 0, "nb": 0}
 
-        # Main frame
-        self.gas_frame = tk.Frame(w, padx=12, pady=12, bg="#7df3e1")
-        self.gas_frame.pack(fill="both", expand=True)
+        def close_gas():
+            self.lab["running"] = False
+            if self.lab["job"]:
+                try:
+                    self.lab_canvas.after_cancel(self.lab["job"])
+                except Exception:
+                    pass
+            play_sound("window_close")
+            w.destroy()
 
-        tk.Label(self.gas_frame, text="Pick two reactants, set amounts, then Run Reaction",
-                 font=self.header_font, bg="#7df3e1").pack(pady=(4, 8))
+        bottom = tk.Frame(w, bg=bg)
+        bottom.pack(side="bottom", fill="x")
+        ttk.Button(bottom, text="Close", command=close_gas).pack(pady=(0, 10))
+        outer, frame = make_scrollable(w, bg)
+        outer.pack(fill="both", expand=True)
+        frame.config(padx=12, pady=8)
+        self.gas_frame = frame
 
-        # Gas species and emojis
-        self.gas_species = ["H2", "O2", "Cl2", "K", "N2", "CH4"]
+        tk.Label(frame, text="Pick two reactants, set the amounts, then run the experiment",
+                 font=self.header_font, bg=bg, fg=ink).pack(pady=(2, 8))
+
+        # ---- reactant chips (two rows) ----
+        self.gas_species = list(GAS_STYLE.keys())
         self.gas_sel = {}
         self.gas_labels = {}
-
-        emoji_map = {
-            "H2": "💧",
-            "O2": "🌬️",
-            "Cl2": "🧪",
-            "K": "⚙️",
-            "N2": "💨",
-            "CH4": "🔥"
-        }
-
-        species_frame = tk.Frame(self.gas_frame, bg="#7df3e1")
-        species_frame.pack(pady=(8, 6))
-
+        chips = tk.Frame(frame, bg=bg)
+        chips.pack(pady=(0, 6))
         for i, g in enumerate(self.gas_species):
-            sub = tk.Frame(species_frame, bg="#7df3e1", padx=6, pady=6)
-            sub.grid(row=0, column=i, padx=12)
-
             self.gas_sel[g] = tk.BooleanVar(value=False)
-            lbl = tk.Label(sub, text=f"{emoji_map[g]}\n{g}", font=("Segoe UI Emoji", 14),
-                           bg="#eafbe7", width=6, relief="ridge", bd=2)
-            lbl.pack()
+            lbl = tk.Label(chips, text=f"{pretty_formula(g)}\n{GAS_INFO[g][1]}",
+                           font=("Segoe UI", 12, "bold"), bg="#eafbe7", fg=ink,
+                           width=12, pady=4, relief="ridge", bd=2, cursor="hand2")
+            lbl.grid(row=i // 6, column=i % 6, padx=6, pady=4)
+            lbl.bind("<Button-1>", lambda e, gas=g: self._toggle_gas(gas))
             self.gas_labels[g] = lbl
 
-            def toggle(var=self.gas_sel[g], label=lbl):
-                var.set(not var.get())
-                label.config(bg="#b6d7a8" if var.get() else "#eafbe7")
-                # soft ping sound when selecting gases
-                self.root.after(10, lambda: winsound.Beep(550, 40))
-
-            lbl.bind("<Button-1>", lambda e, f=toggle: f())
-
-        # Amount sliders
-        amt_frame = tk.Frame(self.gas_frame, bg="#7df3e1")
-        amt_frame.pack(pady=(8, 12))
-        tk.Label(amt_frame, text="Reactant 1 amount (mol):", bg="#7df3e1").grid(row=0, column=0, padx=6)
-        tk.Label(amt_frame, text="Reactant 2 amount (mol):", bg="#7df3e1").grid(row=0, column=2, padx=6)
-        self.amt1 = tk.DoubleVar(value=1)
-        self.amt2 = tk.DoubleVar(value=1)
-
-        # function to play sound on slider move
-        def slider_click(_):
-            winsound.Beep(750, 30)
-
-        scale1 = ttk.Scale(amt_frame, from_=0.5, to=5, orient="horizontal", variable=self.amt1, length=160)
-        scale2 = ttk.Scale(amt_frame, from_=0.5, to=5, orient="horizontal", variable=self.amt2, length=160)
+        # ---- amount sliders ----
+        amt_frame = tk.Frame(frame, bg=bg)
+        amt_frame.pack(pady=(4, 6))
+        self.amt1 = tk.DoubleVar(value=1.0)
+        self.amt2 = tk.DoubleVar(value=1.0)
+        lab_font = ("Segoe UI", 11, "bold")
+        self.amt1_label = tk.Label(amt_frame, text="Reactant 1 amount (mol):", bg=bg, fg=ink, font=lab_font)
+        self.amt1_label.grid(row=0, column=0, padx=6)
+        self.amt2_label = tk.Label(amt_frame, text="Reactant 2 amount (mol):", bg=bg, fg=ink, font=lab_font)
+        self.amt2_label.grid(row=0, column=2, padx=6)
+        scale1 = ttk.Scale(amt_frame, from_=0.5, to=5, orient="horizontal", variable=self.amt1, length=200,
+                           command=lambda v: self._gas_amount_changed(self.amt1, v))
+        scale2 = ttk.Scale(amt_frame, from_=0.5, to=5, orient="horizontal", variable=self.amt2, length=200,
+                           command=lambda v: self._gas_amount_changed(self.amt2, v))
         scale1.grid(row=0, column=1)
         scale2.grid(row=0, column=3)
-        scale1.bind("<ButtonRelease-1>", slider_click)
-        scale2.bind("<ButtonRelease-1>", slider_click)
+        tk.Label(amt_frame, textvariable=self.amt1, bg=bg, fg=ink, font=lab_font).grid(row=1, column=1)
+        tk.Label(amt_frame, textvariable=self.amt2, bg=bg, fg=ink, font=lab_font).grid(row=1, column=3)
 
-        tk.Label(amt_frame, textvariable=self.amt1, bg="#7df3e1").grid(row=1, column=1)
-        tk.Label(amt_frame, textvariable=self.amt2, bg="#7df3e1").grid(row=1, column=3)
+        # ---- the lab bench ----
+        self.lab_canvas = tk.Canvas(frame, width=920, height=340, bg="#e8fbff",
+                                    highlightthickness=2, highlightbackground=ink)
+        self.lab_canvas.pack(pady=(4, 8))
 
-        # Buttons: Run Reaction + Reset Selection
-        btn_frame = tk.Frame(self.gas_frame, bg="#7df3e1")
-        btn_frame.pack(pady=(10, 6))
+        btns = tk.Frame(frame, bg=bg)
+        btns.pack(pady=(0, 6))
+        make_button(btns, "Run Reaction", self.run_gas_reaction, "#2e9e5b",
+                    font=self.btn_font).grid(row=0, column=0, padx=8)
+        make_button(btns, "Reset Selection", self.reset_gas_selection, "#e0a800",
+                    font=self.btn_font).grid(row=0, column=1, padx=8)
 
-        tk.Button(btn_frame, text="Run Reaction ⚡", font=self.btn_font, bg="#93c47d",
-                  fg="white", command=self.run_gas_reaction).grid(row=0, column=0, padx=8)
+        # ---- lab notebook (with scrollbar) ----
+        out_frame = tk.Frame(frame, bg=bg)
+        out_frame.pack(fill="both", expand=True, pady=(4, 4))
+        out_scroll = ttk.Scrollbar(out_frame, orient="vertical")
+        out_scroll.pack(side="right", fill="y")
+        self.gas_output = make_rich_text(out_frame, bg="#f2fffc", fg=ink, height=10,
+                                         yscrollcommand=out_scroll.set)
+        self.gas_output.pack(side="left", fill="both", expand=True)
+        out_scroll.config(command=self.gas_output.yview)
+        self.gas_output.tag_config("strong", font=("Segoe UI", 12, "bold"), foreground=ink,
+                                   lmargin1=14, lmargin2=14, spacing1=5, spacing3=4)
+        self._gas_show_intro()
 
-        tk.Button(btn_frame, text="Reset Selection 🔄", font=self.btn_font, bg="#ffd966",
-                  command=lambda: self.reset_gas_selection()).grid(row=0, column=1, padx=8)
+        self._gas_set_idle()
+        w.protocol("WM_DELETE_WINDOW", close_gas)
+        self._gas_loop()
 
-        # Output area
-        self.gas_output = tk.Text(self.gas_frame, width=90, height=14, font=self.mono, bg="#dafff9",
-                                  fg="#222222", wrap="word")
-        self.gas_output.pack(pady=(6, 10), fill="both", expand=True)
-        self.gas_output.insert(tk.END, "Results of your reaction will appear here.\n")
-        self.gas_output.config(state="disabled")
+    # ---- selecting reactants ----
+    def _toggle_gas(self, g):
+        var = self.gas_sel[g]
+        if var.get():
+            var.set(False)
+            self.gas_order.remove(g)
+        else:
+            if len(self.gas_order) >= 2:
+                play_sound("wrong")      # only two reactants allowed
+                return
+            var.set(True)
+            self.gas_order.append(g)
+        play_sound("pop")
+        for gas, lbl in self.gas_labels.items():
+            lbl.config(bg=GAS_STYLE[gas][0] if self.gas_sel[gas].get() else "#eafbe7")
+        self._gas_set_idle()
 
-        ttk.Button(w, text="Close", command=lambda: (play_sound("window_close"), w.destroy())).pack(pady=(0, 10))
+    def _gas_amount_changed(self, var, v):
+        var.set(round(float(v) * 2) / 2)       # snap to 0.5 mol steps
+        lab = self.lab
+        if lab["mode"] == "run":
+            if lab["t"] > 10.5:                 # experiment finished, so go back to setup
+                self._gas_set_idle()
+        else:
+            na = max(2, round(self.amt1.get() * 4))
+            nb = max(2, round(self.amt2.get() * 4))
+            if (na, nb) != (lab["na"], lab["nb"]):
+                self._gas_set_idle()
+
+    def _gas_make_particles(self, na, nb):
+        parts = []
+        for side, n in (("a", na), ("b", nb)):
+            for i in range(n):
+                parts.append({
+                    "side": side, "i": i, "consumed": False,
+                    "jx": random.uniform(-45, 45), "jy": random.uniform(15, 130),
+                    "ph": random.uniform(0, 6.28),
+                    "delay": random.uniform(0, 1.0),
+                    "react_at": 3.0 + random.uniform(0, 1.0),
+                    "tx": random.uniform(425, 495), "ty": random.uniform(235, 285),
+                })
+        return parts
+
+    def _gas_set_idle(self):
+        lab = self.lab
+        lab["a"] = self.gas_order[0] if len(self.gas_order) > 0 else None
+        lab["b"] = self.gas_order[1] if len(self.gas_order) > 1 else None
+        lab["mode"], lab["t"], lab["kind"] = "idle", 0.0, "none"
+        lab["na"] = max(2, round(self.amt1.get() * 4))
+        lab["nb"] = max(2, round(self.amt2.get() * 4))
+        lab["parts"] = self._gas_make_particles(lab["na"] if lab["a"] else 0,
+                                                lab["nb"] if lab["b"] else 0)
+        self.amt1_label.config(text=f"{pretty_formula(lab['a'])} amount (mol):" if lab["a"]
+                               else "Reactant 1 amount (mol):")
+        self.amt2_label.config(text=f"{pretty_formula(lab['b'])} amount (mol):" if lab["b"]
+                               else "Reactant 2 amount (mol):")
+
+    def _gas_show_intro(self):
+        box = self.gas_output
+        box.config(state="normal")
+        box.delete("1.0", tk.END)
+        box.insert(tk.END, "Lab notebook\n", "title")
+        box.insert(tk.END, "Your results will appear here after you run a reaction.\n", "sub")
+        box.config(state="disabled")
 
     def reset_gas_selection(self):
-        """Reset all gas selections and label colors."""
         for g in self.gas_species:
             self.gas_sel[g].set(False)
             self.gas_labels[g].config(bg="#eafbe7")
-        winsound.Beep(500, 60)
-        self.gas_output.config(state="normal")
-        self.gas_output.insert(tk.END, "🧹 All reactants deselected.\n\n")
-        self.gas_output.config(state="disabled")
+        self.gas_order = []
+        self._gas_set_idle()
+        self._gas_show_intro()
+        play_sound("click")
 
+    # ---- running an experiment ----
     def run_gas_reaction(self):
-        selected = [g for g, v in self.gas_sel.items() if v.get()]
-        if len(selected) != 2:
-            messagebox.showwarning("Need 2 reactants", "Please select exactly two gases/reactants.")
-            self.root.after(10, lambda: winsound.Beep(400, 200))  # error sound
+        if len(self.gas_order) != 2:
+            play_sound("wrong")
+            messagebox.showwarning("Need 2 reactants", "Please select exactly two reactants first.",
+                                   parent=self.gas_win)
+            return
+        a, b = self.gas_order
+        amt1, amt2 = self.amt1.get(), self.amt2.get()
+        rx = GAS_REACTIONS.get(frozenset((a, b)))
+        lab = self.lab
+
+        box = self.gas_output
+        box.config(state="normal")
+        box.delete("1.0", tk.END)
+        box.insert(tk.END, "Experiment Result\n", "title")
+        box.insert(tk.END, f"{amt1:g} mol {pretty_formula(a)}  +  {amt2:g} mol {pretty_formula(b)}\n", "sub")
+
+        ua = ub = 0
+        if rx:
+            def parse(side):
+                out = []
+                for term in side.split(" + "):
+                    m = re.match(r"\s*(\d*)\s*(.+?)(?:\((aq|s|l|g)\))?\s*$", term)
+                    out.append((int(m.group(1) or 1), m.group(2), m.group(3) or ""))
+                return out
+
+            def state_word(name, st):
+                if st == "s":
+                    if name in ("Cu", "Ag"):
+                        return "solid metal"
+                    if name in ("ZnO", "MgO"):
+                        return "solid oxide"
+                    return "precipitate"
+                return {"aq": "in solution", "l": "liquid", "g": "gas"}.get(st, "")
+
+            lhs, rhs = rx["eq"].split("→")
+            reac, prod = parse(lhs), parse(rhs)
+            coef = {name: cf for cf, name, _ in reac}
+            ca, cb = coef[a], coef[b]
+            extent = min(amt1 / ca, amt2 / cb)
+            used_a, used_b = extent * ca, extent * cb
+            left_a, left_b = max(0.0, amt1 - used_a), max(0.0, amt2 - used_b)
+            left_a = 0.0 if left_a < 1e-9 else left_a
+            left_b = 0.0 if left_b < 1e-9 else left_b
+
+            na = max(2, round(amt1 * 4))
+            nb = max(2, round(amt2 * 4))
+            ua = max(1, min(na, round(used_a * 4)))
+            ub = max(1, min(nb, round(used_b * 4)))
+            if left_a > 0:
+                ua = min(ua, na - 1)
+            if left_b > 0:
+                ub = min(ub, nb - 1)
+
+            info = RX_TYPES[rx["t"]]
+
+            add_chip(box, "REACTION", "#1d4ed8")
+            add_eq(box, pretty_formula(rx["eq"]), "#dff5e6", "#0b4a24")
+
+            add_chip(box, "REACTION TYPE", "#be123c")
+            box.insert(tk.END, info["title"] + "\n\n", "strong")
+
+            add_chip(box, "BONDING: " + info["tag"].upper(), "#0f766e")
+            box.insert(tk.END, info["text"] + "\n\n", "para")
+
+            if rx["net"]:
+                add_chip(box, "NET IONIC EQUATION", "#0369a1")
+                add_eq(box, rx["net"], "#e0f2fe", "#075985")
+                box.insert(tk.END, "\n")
+
+            add_chip(box, "STOICHIOMETRY", "#7c3aed")
+            if left_a == 0 and left_b == 0:
+                add_line(box, "Both reactants are used up exactly (a perfect ratio).")
+            else:
+                lim, other, left = (a, b, left_b) if left_a == 0 else (b, a, left_a)
+                add_line(box, f"Limiting reactant: {pretty_formula(lim)} (completely used up)")
+                add_line(box, f"Leftover: {left:.3g} mol {pretty_formula(other)} (excess, unreacted)")
+            for cf, n, st in prod:
+                sw = state_word(n, st)
+                add_line(box, f"Formed: {cf * extent:.3g} mol {pretty_formula(n)}" + (f"  ({sw})" if sw else ""))
+            box.insert(tk.END, "\n")
+
+            if rx.get("salt"):
+                add_chip(box, "SALT & SOLUTION COLOUR", "#0e7490")
+                add_line(box, f"{rx.get('salt_label', 'Salt')} formed: "
+                              f"{pretty_formula(rx['salt'])}(aq)  \u2014  {rx['salt_word']}")
+                add_line(box, "The coloured dots in the flask are the dissolved salt ions. "
+                              "Colourless solutions are tinted on screen so each reaction looks different.")
+                box.insert(tk.END, "\n")
+            elif rx.get("dry"):
+                add_chip(box, "SOLID PRODUCTS", "#0e7490")
+                add_line(box, "No solution forms: the metal oxide and the copper are both solids left in the flask.")
+                add_line(box, "The mixture has to be heated to start the reaction.")
+                box.insert(tk.END, "\n")
+
+            if rx.get("gas_type") == "h2":
+                add_chip(box, "GAS TEST: HYDROGEN", "#be123c")
+                add_line(box, "A lighted splint held at the mouth of the tube gives a squeaky pop: H\u2082 is present.")
+                add_line(box,
+                         "2H\u2082 + O\u2082 \u2192 2H\u2082O  (the hydrogen burns rapidly with oxygen in the air)")
+                box.insert(tk.END, "\n")
+            elif rx.get("gas_type") == "co2":
+                add_chip(box, "GAS TEST: CARBON DIOXIDE", "#475569")
+                add_line(box, "Bubbled through limewater, the gas turns it milky: "
+                              "CO\u2082 + Ca(OH)\u2082 \u2192 CaCO\u2083 + H\u2082O  (insoluble calcium carbonate).")
+                box.insert(tk.END, "\n")
+
+            add_chip(box, "WHAT YOU SEE", "#b45309")
+            add_line(box, rx["see"])
+            box.insert(tk.END, "\n")
+            lab["popped"] = False
+            lab["t0"], lab["t"], lab["mode"] = time.time(), 0.0, "run"
+            add_chip(box, "LAB NOTE", "#475569")
+            add_line(box, rx["cond"])
+            play_sound("start")
+            self.root.after(2700, lambda: play_sound("reaction"))
+        else:
+            add_chip(box, "NO REACTION", "#b91c1c")
+            add_line(box, f"{pretty_formula(a)} and {pretty_formula(b)} do not react.")
+            box.insert(tk.END, "\n")
+            add_chip(box, "WHY NOT?", "#475569")
+            add_line(box, gas_no_reaction_reason(a, b))
+            play_sound("start")
+            self.root.after(2700, lambda: play_sound("wrong"))
+        box.config(state="disabled")
+
+        lab = self.lab
+        lab["a"], lab["b"] = a, b
+        lab["kind"] = "rx" if rx else "none"
+        lab["rx"] = rx
+        lab["parts"] = self._gas_make_particles(max(2, round(amt1 * 4)), max(2, round(amt2 * 4)))
+        for part in lab["parts"]:
+            part["consumed"] = part["i"] < (ua if part["side"] == "a" else ub)
+        lab["t0"], lab["t"], lab["mode"] = time.time(), 0.0, "run"
+
+    # ------ animation -------------------------------
+    def _gas_loop(self):
+        lab = self.lab
+        if not lab["running"]:
+            return
+        lab["tick"] += 0.04
+        if lab["mode"] == "run":
+            lab["t"] = time.time() - lab["t0"]
+        try:
+            self._gas_draw()
+        except tk.TclError:
+            return                      # window was closed
+        except Exception as e:          # never let one bad frame kill the animation
+            print("gas draw error:", e, file=sys.stderr)
+        lab["job"] = self.lab_canvas.after(40, self._gas_loop)
+
+    def _gas_draw_dry(self, c, rx, t, p, tick):
+        def xl(y):
+            return 440 - 0.5 * (y - 180)
+
+        def xr(y):
+            return 480 + 0.5 * (y - 180)
+
+        lvl = max(0.0, min(1.0, (t - 1.0) / 2.2))
+        if lvl <= 0:
+            return
+        top = 298 - 22 * lvl
+        heat = max(0.0, min(1.0, (t - 2.7) / 1.0))
+        glow = heat * (1 - max(0.0, (p - 0.75) / 0.25))
+        col = _mix("#3b3632", rx["liq"], p)
+        col = _mix(col, "#ff9d3c", 0.75 * glow)
+        c.create_polygon(xl(top) + 3, top, xr(top) - 3, top, xr(300) - 3, 298, xl(300) + 3, 298,
+                         fill=col, outline="")
+        for i in range(int(24 * p)):                       # copper specks
+            f1 = ((i * 37) % 100) / 100.0
+            f2 = ((i * 61) % 100) / 100.0
+            y = top + 4 + f2 * (294 - top - 4)
+            x = xl(y) + 8 + f1 * (xr(y) - xl(y) - 16)
+            c.create_oval(x - 3, y - 3, x + 3, y + 3, fill="#c8693c", outline="#8a4524")
+        if heat > 0:                                       # flames at the base
+            fade = 1 - 0.8 * max(0.0, (p - 0.8) / 0.2)
+            for i in range(7):
+                fx = 405 + i * 18
+                h = (16 + 10 * math.sin(tick * 14 + i * 1.9)) * heat * fade
+                c.create_polygon(fx - 8, 300, fx, 300 - h - 8, fx + 8, 300,
+                                 fill="#ff8c00", outline="", smooth=True)
+                c.create_polygon(fx - 4, 300, fx, 300 - h * 0.6, fx + 4, 300,
+                                 fill="#ffe14d", outline="", smooth=True)
+        if 0.05 < p < 0.9:                                 # sparks
+            for i in range(9):
+                ph = (tick * 1.6 + i / 9.0) % 1.0
+                f1 = ((i * 53) % 100) / 100.0
+                x = 440 + (f1 - 0.5) * 70 + 12 * math.sin(tick * 5 + i)
+                y = top - ph * 40
+                r = 2.4 * (1 - ph) + 0.5
+                c.create_oval(x - r, y - r, x + r, y + r, fill="#fff3a0", outline="#ff7a00")
+
+    # ------------------------------------------------------------------
+    # Product solution: coloured liquid, dissolved salt ions, surface fizz
+    # ------------------------------------------------------------------
+    def _gas_draw_product(self, c, rx, t, p, tick):
+        def xl(y):
+            return 440 - 0.5 * (y - 180)
+
+        def xr(y):
+            return 480 + 0.5 * (y - 180)
+
+        if rx.get("dry"):
+            self._gas_draw_dry(c, rx, t, p, tick)
+            return
+        # liquid rises as the solutions run in, and changes to the product colour
+        lvl = max(0.0, min(1.0, (t - 1.0) / 2.2))
+        if lvl <= 0:
+            return
+        top = 300 - 52 * lvl
+        col = _mix(rx.get("frm") or "#eaf8ff", rx["liq"], min(1.0, p * 1.4))
+        c.create_polygon(xl(top) + 3, top, xr(top) - 3, top, xr(300) - 3, 298, xl(300) + 3, 298,
+                            fill=col, outline="")
+        c.create_line(xl(top) + 3, top, xr(top) - 3, top, fill="#ffffff", width=2)
+
+        # precipitate: cloudy at first, then it settles to the bottom
+        if rx["ppt"] and p > 0:
+            settle = max(0.0, (p - 0.35) / 0.65)
+            for i in range(int(52 * min(1.0, p * 2))):
+                f1 = ((i * 37) % 100) / 100.0
+                f2 = ((i * 61) % 100) / 100.0
+                y0 = top + 6 + f2 * (288 - top - 6)
+                y = y0 + (293 - (i % 4) * 3 - y0) * settle
+                x = xl(y) + 9 + f1 * (xr(y) - xl(y) - 18)
+                c.create_oval(x - 3, y - 3, x + 3, y + 3, fill=rx["ppt"],
+                                outline=_mix(rx["ppt"], "#000000", 0.3))
+            if settle > 0:
+                yb = 298 - 9 * settle
+                c.create_polygon(xl(yb) + 3, yb, xr(yb) - 3, yb, xr(298) - 3, 298, xl(298) + 3, 298,
+                                    fill=rx["ppt"], outline="")
+
+        # dissolved SALT: coloured ions drifting through the solution
+        if p > 0 and rx.get("salt_col"):
+            scol = rx["salt_col"]
+            edge = _mix(scol, "#000000", 0.4)
+            for i in range(int(34 * min(1.0, p * 1.6))):
+                f1 = ((i * 29) % 100) / 100.0
+                f2 = ((i * 71) % 100) / 100.0
+                y = top + 8 + f2 * (286 - top - 8) + 3 * math.cos(tick * 2.2 + i)
+                x = xl(y) + 10 + f1 * (xr(y) - xl(y) - 20) + 3 * math.sin(tick * 1.8 + i * 1.7)
+                c.create_oval(x - 4, y - 4, x + 4, y + 4, fill=scol, outline=edge, width=1)
+
+        # gas bubbles rising through the liquid, dying away as the reaction ends
+        if rx["gas"] and p > 0:
+            act = min(1.0, p * 4) * (1 - max(0.0, (p - 0.85) / 0.15))
+            for i in range(int(18 * act)):
+                ph = (tick * 0.9 + i / 18.0) % 1.0
+                y = 294 - ph * (294 - top)
+                f1 = ((i * 53) % 100) / 100.0
+                x = xl(y) + 10 + f1 * (xr(y) - xl(y) - 20)
+                r = 2.5 + (i % 3) * 1.5
+                c.create_oval(x - r, y - r, x + r, y + r, fill="#f8fdff", outline="#6b93b3", width=1)
+
+            # FIZZ on top: a foam of bubbles at the surface + spray above it
+            for i in range(int(20 * act)):
+                f1 = ((i * 47) % 100) / 100.0
+                r = 3.2 + (i % 3) + 1.2 * math.sin(tick * 6 + i * 1.3)
+                x = xl(top) + 9 + f1 * (xr(top) - xl(top) - 18)
+                y = top - r * 0.55
+                c.create_oval(x - r, y - r, x + r, y + r, fill="#ffffff", outline="#8fb2c8", width=1)
+                c.create_oval(x - r * 0.5, y - r * 0.6, x - r * 0.1, y - r * 0.2,
+                                fill="#e6f6ff", outline="")
+            for i in range(int(10 * act)):
+                ph = (tick * 1.7 + i / 10.0) % 1.0
+                f1 = ((i * 59) % 100) / 100.0
+                x = xl(top) + 12 + f1 * (xr(top) - xl(top) - 24) + 4 * math.sin(tick * 5 + i)
+                y = top - 4 - ph * 26
+                r = 2.2 * (1 - ph) + 0.4
+                c.create_oval(x - r, y - r, x + r, y + r, fill="#ffffff", outline="#9bbbd0")
+
+        # metal deposit (displacement reactions)
+        if rx["dep"] and p > 0:
+            for i in range(int(26 * p)):
+                f1 = ((i * 43) % 100) / 100.0
+                y = 294 - (i % 3) * 5
+                x = xl(y) + 9 + f1 * (xr(y) - xl(y) - 18)
+                c.create_rectangle(x - 4, y - 2.5, x + 4, y + 2.5, fill=rx["dep"],
+                                    outline=_mix(rx["dep"], "#000000", 0.35))
+
+    # ------------------------------------------------------------------
+    # Gas test station: limewater (CO2) or inverted tube + lighted splint (H2)
+    # ------------------------------------------------------------------
+    def _gas_draw_station(self, c, rx, t, p, tick):
+        gt = rx.get("gas_type")
+        if not gt:
+            return
+        lab = self.lab
+        act = min(1.0, p * 4) * (1 - max(0.0, (p - 0.85) / 0.15))  # gas being produced
+        cx = 590
+        T_IN, T_POP = 6.9, 8.1
+
+        def poly(pts):
+            return [v for pt in pts for v in pt]
+
+        if gt == "co2":
+            path = [(460, 116), (460, 28), (cx, 28), (cx, 272)]
+            # test tube of limewater
+            c.create_rectangle(cx - 30, 190, cx + 30, 300, fill="#f4fdff", outline="#7aa7c0", width=3)
+            milk = max(0.0, min(1.0, (t - 4.2) / 4.0))
+            lime = _mix("#d8f1ff", "#fbfbf4", milk)
+            c.create_rectangle(cx - 28, 222, cx + 28, 298, fill=lime, outline="")
+            c.create_line(cx - 28, 222, cx + 28, 222, fill="#ffffff", width=2)
+            for i in range(int(24 * milk)):  # chalky specks appear
+                f1 = ((i * 41) % 100) / 100.0
+                f2 = ((i * 67) % 100) / 100.0
+                x = cx - 24 + f1 * 48
+                y = 228 + f2 * 66
+                c.create_oval(x - 2.5, y - 2.5, x + 2.5, y + 2.5, fill="#ffffff", outline="#cfcfc4")
+            c.create_text(cx, 322, text="Limewater", font=("Segoe UI", 12, "bold"), fill="#ffffff")
+        else:
+            path = [(460, 116), (460, 28), (556, 28), (556, 286), (cx, 286), (cx, 218)]
+            # stand + clamp
+            c.create_rectangle(612, 296, 676, 302, fill="#6b7280", outline="#374151")
+            c.create_line(644, 298, 644, 196, width=5, fill="#8b95a1")
+            c.create_line(644, 204, cx + 30, 204, width=5, fill="#8b95a1")
+            # inverted test tube collecting hydrogen (gas is lighter than air)
+            c.create_rectangle(cx - 30, 180, cx + 30, 262, fill="#f4fdff", outline="#7aa7c0", width=3)
+            f = min(1.0, p * 1.15)
+            if t > T_POP:
+                f *= max(0.0, 1 - (t - T_POP) / 0.3)  # gas burns away at the pop
+            if f > 0:
+                c.create_rectangle(cx - 28, 182, cx + 28, 182 + 78 * f, fill="#dbeafe", outline="")
+                for i in range(int(12 * f)):
+                    f1 = ((i * 37) % 100) / 100.0
+                    f2 = ((i * 53) % 100) / 100.0
+                    x = cx - 22 + f1 * 44 + 2 * math.sin(tick * 3 + i)
+                    y = 188 + f2 * max(4.0, 70 * f)
+                    c.create_oval(x - 2.5, y - 2.5, x + 2.5, y + 2.5, fill="#bfdbfe", outline="#60a5fa")
+            c.create_text(cx, 322, text="Collecting H\u2082", font=("Segoe UI", 12, "bold"), fill="#ffffff")
+
+        # delivery tube from the flask to the test tube
+        line = poly(path)
+        c.create_line(*line, width=8, fill="#8fa9b8", joinstyle="round", capstyle="round")
+        c.create_line(*line, width=4, fill="#e8f4fb", joinstyle="round", capstyle="round")
+        if act > 0:
+            for i in range(10):  # gas puffs travelling along it
+                x, y = _path_point(path, (tick * 0.5 + i / 10.0) % 1.0)
+                c.create_oval(x - 2.6, y - 2.6, x + 2.6, y + 2.6, fill="#ffffff", outline="#6b93b3")
+        if gt == "co2" and act > 0:  # bubbles through the limewater
+            for i in range(int(6 * act)):
+                ph = (tick * 1.3 + i / 6.0) % 1.0
+                y = 272 - ph * 48
+                x = cx + 7 * math.sin(tick * 4 + i * 2)
+                r = 2.2 + (i % 2)
+                c.create_oval(x - r, y - r, x + r, y + r, fill="#ffffff", outline="#6b93b3")
+
+        # ---------- test result ----------
+        if gt == "co2":
+            if t > 7.0:
+                c.create_text(cx, 172, text="Limewater turns milky: CO\u2082 \u2714",
+                                font=("Segoe UI", 10, "bold"), fill="#7c2d12")
             return
 
-        amt1 = self.amt1.get()
-        amt2 = self.amt2.get()
-        a, b = selected
+        # hydrogen: lighted splint approaches the mouth of the tube -> squeaky pop
+        if t >= T_IN:
+            u = min(1.0, (t - T_IN) / (T_POP - T_IN))
+            e = u * u * (3 - 2 * u)
+            tx = 712 - (712 - (cx + 6)) * e
+            ty = 276
+            c.create_line(tx, ty, tx + 58, ty + 5, width=5, fill="#c08a4b", capstyle="round")
+            c.create_line(tx, ty, tx + 58, ty + 5, width=1, fill="#7a4e1d")
+            if t < T_POP:
+                fl = 1 + 0.18 * math.sin(tick * 18)
+                c.create_polygon(tx - 7, ty - 2, tx - 4, ty - 15 * fl, tx, ty - 25 * fl,
+                                    tx + 4, ty - 14 * fl, tx + 7, ty - 2,
+                                    fill="#ff8c00", outline="#e65100", smooth=True)
+                c.create_polygon(tx - 3, ty - 2, tx - 1, ty - 10 * fl, tx, ty - 15 * fl,
+                                     tx + 2, ty - 9 * fl, tx + 3, ty - 2,
+                                     fill="#ffe14d", outline="", smooth=True)
+            else:
+                c.create_oval(tx - 3, ty - 3, tx + 3, ty + 3, fill="#7f1d1d", outline="")  # ember
+                for i in range(4):  # smoke
+                    ph = ((t - T_POP) * 0.8 + i / 4.0) % 1.0
+                    c.create_oval(tx - 4 + 6 * math.sin(i * 2 + ph * 5), ty - 8 - ph * 30,
+                                    tx + 4 + 6 * math.sin(i * 2 + ph * 5), ty - 0 - ph * 30,
+                                    outline="#9ca3af")
 
-        reaction, product_emoji = self.predict_reaction(a, b)
+        if t >= T_POP:
+            if not lab.get("popped"):
+                lab["popped"] = True
+                play_sound("h2_pop")
+            k = (t - T_POP) / 0.6
+            if k < 1:
+                r_out = 12 + 42 * k
+                pts = []
+                for j in range(16):
+                    ang = math.pi * 2 * j / 16
+                    rr = r_out if j % 2 == 0 else r_out * 0.45
+                    pts.append((cx + rr * math.cos(ang), 250 + rr * math.sin(ang)))
+                c.create_polygon(*poly(pts), fill="#fff3a0", outline="#ff7a00", width=2)
+            if t < T_POP + 1.0:
+                c.create_text(cx, 150, text="POP!", font=("Segoe UI", 20, "bold"), fill="#d90429")
+            else:
+                c.create_text(cx, 168, text="Squeaky pop: H\u2082 \u2714",
+                                  font=("Segoe UI", 10, "bold"), fill="#be123c")
 
-        # Flash selected labels
-        def flash_labels(labels, count=6):
-            if count == 0:
-                for lbl in labels:
-                    lbl.config(bg="#eafbe7")
-                self.root.after(100, lambda: winsound.Beep(500, 70))
-                return
-            color = "#ffd966" if count % 2 == 0 else "#b6d7a8"
-            for lbl in labels:
-                lbl.config(bg=color)
-            self.root.after(150, lambda: flash_labels(labels, count - 1))
-
-        flash_labels([self.gas_labels[a], self.gas_labels[b]])
-
-        # Build result text
-        result_text = f"🧪 Experiment Result:\nReacting {amt1} mol of {a} with {amt2} mol of {b}...\n\n"
-        if reaction:
-            result_text += f"🔹 Predicted Reaction:\n    {reaction}\n\n"
-            result_text += f"🔸 Stoichiometric ratio ~ {amt1}:{amt2}\n"
-            result_text += f"✨ Product likely: {product_emoji}\n✅ Balanced automatically."
-            play_sound("reaction")
+    def _gas_draw_particle(self, c, g, x, y, s=1.0):
+        """Draw one reactant particle: solids as chunks, solutions as dots."""
+        colour, state = GAS_STYLE[g]
+        edge = _mix(colour, "#000000", 0.45)
+        r = 7 * s
+        if r <= 0.5:
+            return
+        if state == "solid":
+            c.create_rectangle(x - r, y - r * 0.8, x + r, y + r * 0.8,
+                               fill=colour, outline=edge, width=1)
         else:
-            result_text += f"⚠️ Reaction cannot occur between {a} and {b}.\n"
-            play_sound("wrong")  # or use winsound.Beep(350, 250)
+            c.create_oval(x - r, y - r, x + r, y + r,
+                          fill=colour, outline=edge, width=2)
+            c.create_oval(x - r * 0.5, y - r * 0.6, x - r * 0.1, y - r * 0.2,
+                          fill="#ffffff", outline="")
 
-        # Append to output and trim if needed
-        self.gas_output.config(state="normal")
-        MAX_OUTPUT_LINES = 300
-        current_lines = int(self.gas_output.index('end-1c').split('.')[0])
-        if current_lines > MAX_OUTPUT_LINES:
-            self.gas_output.delete("1.0", "end")
-            self.gas_output.insert(tk.END, "🧪 Starting a new log — old results cleared.\n\n")
+    # ------------------------------------------------------------------
+    # Main bench drawing (replaces the old _gas_draw)
+    # ------------------------------------------------------------------
+    def _gas_draw(self):
+        c, lab = self.lab_canvas, self.lab
+        t, tick = lab["t"], lab["tick"]
+        a, b, kind = lab["a"], lab["b"], lab["kind"]
+        rx = lab.get("rx") if kind != "none" else None
+        running = lab["mode"] == "run"
+        p = max(0.0, min(1.0, (t - 3.2) / 3.5)) if running else 0.0
+        c.delete("all")
 
-        self.gas_output.insert(tk.END, result_text + "\n\n" + "-" * 80 + "\n\n")
-        self.gas_output.see(tk.END)
-        self.gas_output.config(state="disabled")
+        # bench
+        c.create_rectangle(0, 300, 920, 340, fill="#a0642d", outline="")
+        c.create_rectangle(0, 300, 920, 305, fill="#c58a4b", outline="")
 
-        # Animate product emoji
-        if reaction:
-            def animate_product(i=0):
-                if i >= 6:
-                    return
-                color = "#ffd966" if i % 2 == 0 else "#ffffff"
-                self.gas_output.tag_config("flash", background=color)
-                self.gas_output.tag_add("flash", "end-2l", "end-1l")
-                self.root.after(300, lambda: animate_product(i + 1))
+        # reaction flask
+        c.create_polygon(440, 128, 480, 128, 480, 180, 540, 300, 380, 300, 440, 180,
+                             fill="#f4fdff", outline="")
+        if running and rx:
+            self._gas_draw_product(c, rx, t, p, tick)
+        c.create_line(440, 128, 440, 180, 380, 300, 540, 300, 480, 180, 480, 128,
+                        fill="#7aa7c0", width=3, joinstyle="round")
+        c.create_line(424, 222, 410, 262, fill="#ffffff", width=3)
+        c.create_rectangle(432, 116, 488, 132, fill="#a16207", outline="#713f12")
 
-            animate_product()
+        # reactant jars (solutions show a liquid level, solids sit at the bottom)
+        for g, cx, amt in ((a, 120, self.amt1.get()), (b, 800, self.amt2.get())):
+            if g:
+                colour, state = GAS_STYLE[g]
+                c.create_rectangle(cx - 60, 150, cx + 60, 300, fill="#f4fdff", outline="#7aa7c0", width=3)
+                if state == "aq":
+                    c.create_rectangle(cx - 58, 162, cx + 58, 298,
+                                        fill=_mix(colour, "#ffffff", 0.55), outline="")
+                c.create_rectangle(cx - 66, 142, cx + 66, 152, fill="#6b7280", outline="#374151")
+                c.create_text(cx, 322, text=f"{pretty_formula(g)}   {amt:g} mol",
+                                  font=("Segoe UI", 12, "bold"), fill="#ffffff")
+            else:
+                c.create_rectangle(cx - 60, 150, cx + 60, 300, outline="#9db4c0", width=2, dash=(5, 4))
+                c.create_text(cx, 225, text="select a\nreactant", justify="center",
+                                font=("Segoe UI", 11, "italic"), fill="#7a93a3")
+        c.create_text(460, 322, text="Reaction flask", font=("Segoe UI", 12, "bold"), fill="#ffffff")
 
-    def predict_reaction(self, a, b):
-        # Define element types
-        metal = {"K", "Na", "Ca", "Mg", "Fe", "Zn"}
-        nonmetal = {"H2", "O2", "Cl2", "N2", "C", "CO", "CH4"}
+        # delivery tubes
+        for g, cx, top, fx in ((a, 120, 62, 445), (b, 800, 82, 475)):
+            if g:
+                line = [cx, 150, cx, top, fx, top, fx, 178]
+                c.create_line(*line, width=10, fill="#8fa9b8", joinstyle="round", capstyle="round")
+                c.create_line(*line, width=6, fill=_mix(GAS_STYLE[g][0], "#ffffff", 0.7),
+                              joinstyle="round", capstyle="round")
 
-        # Known direct reactions (ionic, combustion, covalent)
-        combos = {
-            ("H2", "O2"): ("2H2 + O2 → 2H2O", "💧 Water formed! (covalent)"),
-            ("H2", "Cl2"): ("H2 + Cl2 → 2HCl", "🌫️ Hydrogen Chloride gas (covalent)"),
-            ("CH4", "O2"): ("CH4 + 2O2 → CO2 + 2H2O", "🔥 Combustion releasing CO₂ and H₂O"),
-            ("N2", "H2"): ("N2 + 3H2 → 2NH3", "💨 Ammonia gas (covalent)"),
-            ("C", "O2"): ("C + O2 → CO2", "🌫️ Carbon dioxide forms (covalent)"),
-            ("CO", "O2"): ("2CO + O2 → 2CO2", "💨 Carbon monoxide oxidized to CO₂"),
-            ("K", "Cl2"): ("2K + Cl2 → 2KCl", "🧂 Potassium chloride (ionic)"),
-            ("K", "O2"): ("4K + O2 → 2K2O", "⚙️ Potassium oxide (ionic)"),
-        }
+        # gas test apparatus (limewater / lighted splint)
+        if running and rx and rx.get("gas_type"):
+            self._gas_draw_station(c, rx, t, p, tick)
 
-        # Check for known combo (order-independent)
-        for (x, y), (eq, emoji) in combos.items():
-            if {a, b} == {x, y}:
-                return eq, emoji
+        # particles
+        for part in lab["parts"]:
+            g = a if part["side"] == "a" else b
+            if not g:
+                continue
+            solid = GAS_STYLE[g][1] == "solid"
+            cx = 120 if part["side"] == "a" else 800
+            wob = 0 if solid else 5
+            rx_ = cx + part["jx"] + wob * math.sin(tick * 3 + part["ph"])
+            ry_ = 150 + (118 + part["jy"] % 17 if solid else part["jy"]) + wob * math.cos(tick * 2.6 + part["ph"])
+            x, y, s = rx_, ry_, 1.0
+            if running:
+                u = (t - part["delay"]) / 1.6
+                if u > 0:
+                    u = min(1.0, u)
+                    e = u * u * (3 - 2 * u)
+                    if part["side"] == "a":
+                        path = [(rx_, ry_), (120, 150), (120, 62), (445, 62), (445, 178), (part["tx"], part["ty"])]
+                    else:
+                        path = [(rx_, ry_), (800, 150), (800, 82), (475, 82), (475, 178), (part["tx"], part["ty"])]
+                    x, y = _path_point(path, e)
+                    settle = min(1.0, max(0.0, (t - part["delay"] - 1.6) / 0.4))
+                    amp = (7 if kind == "none" else 5) * settle
+                    x += amp * math.sin(tick * 4 + part["ph"])
+                    y += amp * math.cos(tick * 3.3 + part["ph"])
+                if part["consumed"] and t > part["react_at"]:
+                    k = (t - part["react_at"]) / 0.35
+                    if k >= 1:
+                        continue
+                    s = 1 - k
+            self._gas_draw_particle(c, g, x, y, s)
 
-        # --- NEW LOGIC: Predict based on element types ---
-        # Metal + Nonmetal → Ionic
-        if (a in metal and b in nonmetal) or (b in metal and a in nonmetal):
-            return f"{a} + {b} → {a}{b}", "🧂 Ionic compound likely formed."
+        # ripple where the solutions meet
+        if running and rx and not rx.get("dry") and 2.7 < t < 3.6:
+            k = (t - 2.7) / 0.9
+            r = 10 + 45 * k
+            c.create_oval(460 - r, 262 - r * 0.3, 460 + r, 262 + r * 0.3, outline="#ffffff", width=3)
+            c.create_oval(460 - r * 0.6, 262 - r * 0.18, 460 + r * 0.6, 262 + r * 0.18,
+                            outline="#7aa7c0", width=2)
 
-        # Nonmetal + Nonmetal → Covalent
-        if (a in nonmetal and b in nonmetal):
-            return f"{a} + {b} → Covalent molecule", "🔗 Covalent bond likely formed."
+        # salt card (top right): name + colour of the salt that has formed
+        if running and rx and rx.get("salt") and p > 0.25:
+            scol = rx["salt_col"]
+            c.create_rectangle(716, 6, 912, 50, fill=_mix(scol, "#ffffff", 0.82), outline=scol, width=2)
+            c.create_oval(724, 16, 744, 36, fill=scol, outline=_mix(scol, "#000000", 0.4), width=2)
+            c.create_text(752, 18, anchor="w", text=f"{rx.get('salt_label', 'Salt')}: {pretty_formula(rx['salt'])}(aq)",
+                              font=("Segoe UI", 10, "bold"), fill=_mix(scol, "#000000", 0.55))
+            c.create_text(752, 36, anchor="w", text=rx.get("salt_word", ""),
+                              font=("Segoe UI", 9, "italic"), fill="#334155")
 
-        # Same element → no new compound
-        if a == b:
-            return None, f"⚠️ {a} with {b}: No reaction (same element)."
-
-        # Unknown → return descriptive error line
-        return None, f"❌ No known reaction between {a} and {b}. Possibly inert under normal conditions."
+        # status line
+        colour = "#064e46"
+        if not a or not b:
+            msg = "Select two reactants to set up the experiment"
+        elif not running:
+            msg = "Ready: press Run Reaction"
+        elif t < 2.7:
+            msg = "Reactants are flowing into the flask..."
+        elif t < 3.6:
+            msg = "Mixing..."
+        elif p < 1:
+            msg = (("Heating: the powders glow and react..." if rx.get("dry") else "Reaction in progress...")
+                   if rx else "Mixing... no visible change")
+        elif rx:
+            gt = rx.get("gas_type")
+            if gt == "h2" and t < 8.1:
+                msg = "Testing the gas with a lighted splint..."
+            elif gt == "h2":
+                msg = "Squeaky pop: hydrogen gas confirmed"
+            elif gt == "co2":
+                msg = ("Limewater has turned milky: carbon dioxide confirmed"
+                           if t > 7.5 else "Testing the gas with limewater...")
+            else:
+                if rx.get("dry"):
+                    msg = "Reaction complete: metal oxide + copper formed"
+                else:
+                    bits = []
+                    if rx["ppt"]:
+                        bits.append("precipitate")
+                    if rx["dep"]:
+                        bits.append("metal deposit")
+                    bits.append("salt solution")
+                    msg = "Reaction complete: " + " + ".join(bits) + " formed"
+        else:
+            msg, colour = "No reaction: nothing changed", "#b91c1c"
+        c.create_text(14, 14, anchor="w", text=msg, font=("Segoe UI", 12, "bold"), fill=colour)
 
     # -------------------------
     # AtoMole Arena — atomic structure + moles/stoichiometry, combined
@@ -2060,19 +3021,21 @@ class BondBalancerApp:
     def open_atomole_window(self):
         play_sound("atomole_open")
         w = tk.Toplevel(self.root)
+        enable_fullscreen(w)
         w.title("AtoMole Arena — Atomic Structure & Mole Calculations")
         # Sized extra generously so every card, label, and result line in
         # both tabs (including the Mole Calculator's three stacked cards)
         # is fully visible without needing to maximize the window.
-        w.geometry("1360x980")
-        w.minsize(1250, 900)
+        fit_window(w, 1360, 980, 900, 500)
+        enable_fullscreen(w)
         w.configure(bg="#ede0ff")
 
         header = tk.Frame(w, bg="#5b21b6")
         header.pack(fill="x")
         tk.Label(header, text="⚛️ AtoMole Arena — where atoms meet moles⚙️",
                  font=self.header_font, bg="#5b21b6", fg="#ffffff", pady=10).pack()
-
+        close_btn = ttk.Button(w, text="Close")
+        close_btn.pack(side="bottom", pady=(0, 10))
         notebook = ttk.Notebook(w)
         notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
@@ -2080,6 +3043,16 @@ class BondBalancerApp:
         tab_moles = tk.Frame(notebook, bg="#f3ecff")
         notebook.add(tab_atoms, text="⚛️ Atomic Structure")
         notebook.add(tab_moles, text="⚙️ Mole Calculator")
+
+        def on_atomole_tab_change(event):
+            try:
+                tab_text = event.widget.tab(event.widget.select(), "text")
+            except tk.TclError:
+                return
+            if "Mole Calculator" in tab_text:
+                play_sound("mole_tab")
+
+        notebook.bind("<<NotebookTabChanged>>", on_atomole_tab_change)
 
         # ============ Tab 1: Atomic structure explorer ============
         main_frame = tk.Frame(tab_atoms, bg="#ede0ff")
@@ -2108,72 +3081,99 @@ class BondBalancerApp:
         right_frame.pack(side="left", fill="both", expand=True)
 
         canvas = tk.Canvas(right_frame, width=480, height=420, bg="#ffffff", highlightthickness=0)
-        canvas.pack(pady=(14, 6))
+        canvas.pack(side="left", anchor="n", padx=(14, 6), pady=14)
 
-        info_label = tk.Label(right_frame, text="", font=("Segoe UI", 12), bg="#ffffff",
-                               justify="left", anchor="w")
-        info_label.pack(fill="x", padx=16, pady=(4, 12))
+        # (replaces the old info_label)
+        info_text = make_rich_text(right_frame, bg="#f6f0ff", fg="#3B0A63", width=30, height=11)
+        info_text.pack(side="left", fill="both", expand=True, padx=(6, 12), pady=14)
+        info_text.tag_config("cfg", font=("Segoe UI", 17, "bold"), foreground="#3B0A63",
+                             background="#e5d6ff", lmargin1=14, lmargin2=14)
+        info_text.config(state="disabled")
 
-        def draw_atom(sym):
+        atom_anim = {"angle": 0.0, "job": None, "sym": None, "running": True}
+
+        def show_info(sym):
+            name, z, a, shells = ELEMENT_DATA[sym]
+            roman = ["", "I", "II", "III", "IV", "V", "VI", "VII"]
+            noble = sym in ("He", "Ne", "Ar")
+            box = info_text
+            box.config(state="normal")
+            box.delete("1.0", tk.END)
+            box.insert(tk.END, f"{name} ({sym})\n", "title")
+            box.insert(tk.END, f"Atomic number {z}  ·  Mass number {a}\n", "sub")
+
+            add_chip(box, "SUBATOMIC PARTICLES", "#5b21b6")
+            add_line(box, f"Protons: {z}  (the atomic number)")
+            add_line(box, f"Neutrons: {a - z}  (mass number − protons)")
+            add_line(box, f"Electrons: {sum(shells)}  (equal to protons in a neutral atom)")
+            box.insert(tk.END, "\n")
+
+            add_chip(box, "ELECTRON CONFIGURATION", "#1d4ed8")
+            box.insert(tk.END, "  " + ",".join(str(s) for s in shells) + "  \n\n", "cfg")
+
+            add_chip(box, "SHELLS & VALENCE", "#b45309")
+            add_line(box, f"Occupied shells: {len(shells)}  (this is the period number)")
+            add_line(box, f"Outer shell (valence) electrons: {shells[-1]}")
+            grp = "0 (noble gas)" if noble else roman[shells[-1]]
+            add_line(box, f"Group: {grp}")
+            if noble:
+                add_line(box, "Full outer shell, so it is very unreactive.")
+            box.config(state="disabled")
+
+        def draw_atom(sym, angle=0.0):
             canvas.delete("all")
             name, z, a, shells = ELEMENT_DATA[sym]
             cx, cy = 240, 200
             canvas.create_oval(cx - 26, cy - 26, cx + 26, cy + 26, fill="#b085e0", outline="#3B0A63", width=2)
             canvas.create_text(cx, cy, text=sym, font=("Helvetica", 14, "bold"))
-
             shell_colors = ["#8e44ec", "#1fa878", "#ffb300", "#e06666"]
             for i, n_electrons in enumerate(shells):
                 radius = 45 + i * 38
                 canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius,
-                                    outline=shell_colors[i % len(shell_colors)], width=2)
+                                   outline=shell_colors[i % len(shell_colors)], width=2)
+                shell_speed = (1 if i % 2 == 0 else -1) * (0.9 + i * 0.25)
                 for e_idx in range(n_electrons):
-                    angle = 2 * math.pi * e_idx / n_electrons - math.pi / 2
-                    ex = cx + radius * math.cos(angle)
-                    ey = cy + radius * math.sin(angle)
+                    a_rad = 2 * math.pi * e_idx / n_electrons + angle * shell_speed
+                    ex, ey = cx + radius * math.cos(a_rad), cy + radius * math.sin(a_rad)
+                    canvas.create_oval(ex - 9, ey - 9, ex + 9, ey + 9,
+                                       outline=shell_colors[i % len(shell_colors)], width=1)
                     canvas.create_oval(ex - 6, ey - 6, ex + 6, ey + 6,
-                                        fill=shell_colors[i % len(shell_colors)], outline="#333333")
+                                       fill=shell_colors[i % len(shell_colors)], outline="#333333")
+            # NOTE: text is no longer rewritten every frame (that would flicker)
 
-            protons = z
-            neutrons = a - z
-            electrons = sum(shells)
-            config_str = ",".join(str(s) for s in shells)
-            info_text = (
-                f"Element: {name} ({sym})\n"
-                f"Atomic number (protons): {protons}\n"
-                f"Mass number: {a}\n"
-                f"Neutrons: {neutrons}\n"
-                f"Electrons: {electrons}\n"
-                f"Electron configuration: {config_str}\n"
-                f"Occupied shells (period): {len(shells)}\n"
-                f"Outer shell (valence) electrons: {shells[-1]}"
-            )
-            info_label.config(text=info_text)
+        # animate_atom stays exactly as it was
+        def animate_atom():
+            if not atom_anim["running"] or atom_anim["sym"] is None:
+                return
+            atom_anim["angle"] += 0.04
+            try:
+                draw_atom(atom_anim["sym"], atom_anim["angle"])
+            except tk.TclError:
+                return
+            if atom_anim["running"]:
+                atom_anim["job"] = canvas.after(40, animate_atom)
 
         def on_select(event=None):
             sel = listbox.curselection()
             if not sel:
                 return
             play_sound("atomole_select")
-            sym = symbols[sel[0]]
-            draw_atom(sym)
+            atom_anim["sym"] = symbols[sel[0]]
+            atom_anim["angle"] = 0.0
+            show_info(symbols[sel[0]])
 
         listbox.bind("<<ListboxSelect>>", on_select)
-        draw_atom(symbols[0])
+        atom_anim["sym"] = symbols[0]
+        show_info(symbols[0])
+        animate_atom()
 
         # ============ Tab 2: Mole / stoichiometry calculator ============
-        mfrm = tk.Frame(tab_moles, bg="#f3ecff", padx=18, pady=16)
-        mfrm.pack(fill="both", expand=True)
-
-        tk.Label(mfrm, text="⚙️ Mole Calculator", font=("Georgia", 18, "bold"),
-                 bg="#f3ecff", fg="#5b21b6").pack(pady=(0, 2))
-        tk.Label(mfrm, text="Pick a calculation, enter what you know, and let AtoMole do the rest ✨",
-                 font=("Segoe UI", 11, "italic"), bg="#f3ecff", fg="#6b5b8a").pack(pady=(0, 14))
-
-        # --- Card 1: choose calculation type ---
-        calc_card = tk.LabelFrame(mfrm, text="  ①  Choose a Calculation  ", font=self.header_font,
-                                  bg="#ffffff", fg="#5b21b6", bd=2, relief="ridge", labelanchor="n",
-                                  padx=14, pady=12)
-        calc_card.pack(fill="x", pady=(0, 14))
+        PU, PU_D, PU_L = "#5b21b6", "#3B0A63", "#f3ecff"
+        AVOGADRO = 6.022e23
+        AR = {"H": 1, "He": 4, "Li": 7, "Be": 9, "B": 11, "C": 12, "N": 14, "O": 16, "F": 19,
+              "Ne": 20, "Na": 23, "Mg": 24, "Al": 27, "Si": 28, "P": 31, "S": 32, "Cl": 35.5,
+              "Ar": 40, "K": 39, "Ca": 40, "Fe": 56, "Cu": 63.5, "Zn": 65, "Br": 80,
+              "Ag": 108, "I": 127, "Ba": 137, "Pb": 207}
 
         calc_types = [
             "Mass & Mr → Moles",
@@ -2182,180 +3182,350 @@ class BondBalancerApp:
             "Concentration & Volume(dm³) → Moles",
             "Moles → Volume of gas at r.t.p. (dm³)",
         ]
+        # (top, bottom-left, bottom-right, quantity being solved: top/bl/br, formula)
+        TRIANGLES = {
+            calc_types[0]: ("mass", "moles", "Mr", "bl", "n = m ÷ Mr"),
+            calc_types[1]: ("mass", "moles", "Mr", "top", "m = n × Mr"),
+            calc_types[2]: ("moles", "conc.", "volume", "bl", "c = n ÷ V"),
+            calc_types[3]: ("moles", "conc.", "volume", "top", "n = c × V"),
+            calc_types[4]: ("volume", "moles", "24", "top", "V = n × 24"),
+        }
+
+        # ---------- little drawing helpers ----------
+        def draw_flask(c, cx, base_y, s=1.0, liquid="#a78bfa"):
+            c.create_polygon(cx - 7*s, base_y - 62*s, cx + 7*s, base_y - 62*s, cx + 7*s, base_y - 36*s,
+                             cx + 26*s, base_y, cx - 26*s, base_y, cx - 7*s, base_y - 36*s,
+                             fill="#f5f3ff", outline="#4c1d95", width=2)
+            c.create_polygon(cx - 17*s, base_y - 14*s, cx + 17*s, base_y - 14*s, cx + 26*s, base_y,
+                             cx - 26*s, base_y, fill=liquid, outline="")
+            c.create_rectangle(cx - 9*s, base_y - 68*s, cx + 9*s, base_y - 62*s, fill="#4c1d95", outline="")
+
+        # ---------- banner ----------
+        banner = tk.Canvas(tab_moles, height=70, bg="#2e1065", highlightthickness=0)
+        banner.pack(fill="x")
+
+        def draw_banner(event=None):
+            banner.delete("all")
+            W = max(banner.winfo_width(), 900)
+            for x, col in ((70, "#a78bfa"), (150, "#34d399"), (W - 150, "#fbbf24"), (W - 70, "#f472b6")):
+                draw_flask(banner, x, 62, 0.75, col)
+            banner.create_text(W / 2, 24, text="⚙  M O L E   C A L C U L A T O R  ⚙",
+                               font=("Georgia", 20, "bold"), fill="#ffffff")
+            banner.create_text(W / 2, 52,
+                               text="1 mol = 6.022 × 10²³ particles   ·   24 dm³ of any gas at r.t.p.",
+                               font=("Segoe UI", 11, "italic"), fill="#c4b5fd")
+        banner.bind("<Configure>", draw_banner)
+
+        mfrm = tk.Frame(tab_moles, bg=PU_L, padx=16, pady=12)
+        mfrm.pack(fill="both", expand=True)
+
+        # ---------- RIGHT column: images ----------
+        right_col = tk.Frame(mfrm, bg=PU_L)
+        right_col.pack(side="right", fill="y", padx=(14, 0))
+
+        bench_card = tk.LabelFrame(right_col, text="  🔎 Lab Bench  ", font=self.header_font, bg="#ffffff",
+                                   fg=PU, bd=2, relief="ridge", labelanchor="n", padx=8, pady=6)
+        bench_card.pack(fill="x", pady=(0, 12))
+        bench = tk.Canvas(bench_card, width=400, height=256, bg="#faf7ff", highlightthickness=0)
+        bench.pack()
+
+        tri_card = tk.LabelFrame(right_col, text="  🔺 Mole Triangle  ", font=self.header_font, bg="#ffffff",
+                                 fg=PU, bd=2, relief="ridge", labelanchor="n", padx=8, pady=6)
+        tri_card.pack(fill="x", pady=(0, 12))
+        tri = tk.Canvas(tri_card, width=400, height=250, bg="#faf7ff", highlightthickness=0)
+        tri.pack()
+
+
+        def draw_scene():
+            c, ct = bench, calc_var.get()
+            c.delete("all")
+            if ct in (calc_types[0], calc_types[1]):                 # ---- balance
+                c.create_text(200, 14, text="Weighing a sample", font=("Georgia", 12, "bold"), fill=PU)
+                c.create_rectangle(70, 205, 330, 220, fill="#4c1d95", outline="")
+                c.create_rectangle(192, 68, 208, 205, fill="#7c3aed", outline="")
+                c.create_polygon(200, 44, 188, 68, 212, 68, fill="#a78bfa", outline="")
+                c.create_line(70, 68, 330, 68, width=6, fill=PU)
+                for x in (70, 330):
+                    c.create_line(x, 68, x - 38, 150, fill="#6b5b8a")
+                    c.create_line(x, 68, x + 38, 150, fill="#6b5b8a")
+                    c.create_line(x - 42, 150, x + 42, 150, width=5, fill="#4c1d95")
+                draw_flask(c, 70, 148, 0.9, "#c4b5fd")
+                for i, w_ in enumerate((34, 28, 22)):
+                    c.create_rectangle(330 - w_/2, 148 - (i+1)*14, 330 + w_/2, 148 - i*14,
+                                       fill="#fbbf24", outline="#92400e")
+                c.create_text(70, 180, text="sample", font=("Segoe UI", 10, "bold"), fill=PU_D)
+                c.create_text(330, 180, text="masses (g)", font=("Segoe UI", 10, "bold"), fill=PU_D)
+
+            elif ct in (calc_types[2], calc_types[3]):               # ---- beaker
+                c.create_text(200, 14, text="Solution in a beaker", font=("Georgia", 12, "bold"), fill=PU)
+                c.create_polygon(120, 40, 280, 40, 275, 205, 125, 205, fill="#f5f3ff", outline="#4c1d95", width=3)
+                c.create_polygon(124, 95, 276, 95, 275, 205, 125, 205, fill="#c4b5fd", outline="")
+                for i in range(6):
+                    y = 60 + i * 24
+                    c.create_line(120, y, 140, y, fill="#4c1d95", width=2)
+                rnd = random.Random(7)
+                for _ in range(26):
+                    x, y = rnd.randint(140, 262), rnd.randint(105, 195)
+                    c.create_oval(x - 4, y - 4, x + 4, y + 4, fill="#7c3aed", outline="#3B0A63")
+                c.create_line(300, 95, 300, 205, arrow=tk.BOTH, fill="#b45309", width=2)
+                c.create_text(335, 150, text="V\n(dm³)", font=("Segoe UI", 10, "bold"), fill="#b45309")
+                c.create_text(70, 150, text="● solute\n   particles", font=("Segoe UI", 10, "bold"), fill="#7c3aed")
+
+            else:                                                    # ---- gas syringe
+                c.create_text(200, 14, text="Gas syringe at r.t.p.", font=("Georgia", 12, "bold"), fill=PU)
+                c.create_rectangle(90, 80, 300, 140, fill="#f5f3ff", outline="#4c1d95", width=3)
+                c.create_rectangle(90, 86, 250, 134, fill="#ccfbf1", outline="")
+                c.create_rectangle(250, 80, 262, 140, fill="#4c1d95", outline="")
+                c.create_line(262, 110, 340, 110, width=6, fill="#6b5b8a")
+                c.create_rectangle(338, 90, 350, 130, fill="#6b5b8a", outline="")
+                c.create_line(90, 110, 50, 110, width=8, fill="#6b5b8a")
+                for i in range(11):
+                    x = 100 + i * 15
+                    c.create_line(x, 140, x, 148 if i % 5 else 156, fill="#4c1d95")
+                rnd = random.Random(11)
+                for _ in range(14):
+                    x, y = rnd.randint(100, 238), rnd.randint(94, 126)
+                    c.create_oval(x - 4, y - 4, x + 4, y + 4, fill="#0d9488", outline="#134e4a")
+                c.create_text(200, 180, text="1 mol of any gas = 24 dm³", font=("Segoe UI", 12, "bold"), fill="#0d9488")
+            c.create_text(200, 242, text=TRIANGLES[ct][4],
+                          font=("Courier New", 11, "bold"), fill="#6b5b8a")
+
+        def draw_triangle():
+            c = tri
+            c.delete("all")
+            top, bl, br, solve, formula = TRIANGLES[calc_var.get()]
+            zones = {"top": [(190, 20), (255, 105), (125, 105)],
+                     "bl": [(125, 105), (190, 105), (190, 195), (60, 195)],
+                     "br": [(190, 105), (255, 105), (320, 195), (190, 195)]}
+            centres = {"top": (190, 75, top), "bl": (125, 150, bl), "br": (255, 150, br)}
+            for k, pts in zones.items():
+                c.create_polygon(*[v for p in pts for v in p],
+                                 fill="#fde047" if k == solve else "#ede9fe", outline=PU, width=3)
+                x, y, label = centres[k]
+                c.create_text(x, y, text=label, font=("Segoe UI", 13, "bold"),
+                              fill="#92400e" if k == solve else PU_D)
+            c.create_text(190, 218, text=formula, font=("Courier New", 15, "bold"), fill="#0b6e4f")
+            c.create_text(190, 238, text="yellow = the quantity you are finding", font=("Segoe UI", 9, "italic"), fill="#6b5b8a")
+
+
+
+        # ---------- LEFT column: calculator ----------
+        left_col = tk.Frame(mfrm, bg=PU_L)
+        left_col.pack(side="left", fill="both", expand=True)
+
+        calc_card = tk.LabelFrame(left_col, text="  ①  Choose a Calculation  ", font=self.header_font,
+                                  bg="#ffffff", fg=PU, bd=2, relief="ridge", labelanchor="n", padx=14, pady=10)
+        calc_card.pack(fill="x", pady=(0, 12))
         calc_var = tk.StringVar(value=calc_types[0])
-        combo_style = ttk.Style()
-        combo_style.configure("AtoMole.TCombobox", font=("Segoe UI", 12))
+        ttk.Style().configure("AtoMole.TCombobox", font=("Segoe UI", 12))
         combo = ttk.Combobox(calc_card, textvariable=calc_var, values=calc_types, state="readonly",
-                              width=48, font=("Segoe UI", 12), style="AtoMole.TCombobox")
+                             font=("Segoe UI", 12), style="AtoMole.TCombobox")
         combo.pack(fill="x", ipady=4)
 
-        # --- Card 2: enter known values ---
-        values_card = tk.LabelFrame(mfrm, text="  ②  Enter Known Values  ", font=self.header_font,
-                                    bg="#ffffff", fg="#5b21b6", bd=2, relief="ridge", labelanchor="n",
-                                    padx=14, pady=14)
-        values_card.pack(fill="x", pady=(0, 14))
-        values_card.grid_columnconfigure(1, weight=1)
+        values_row = tk.Frame(left_col, bg=PU_L)
+        values_row.pack(fill="x", pady=(0, 6))
 
+        values_card = tk.LabelFrame(values_row, text="  ②  Enter Known Values  ", font=self.header_font,
+                                    bg="#ffffff", fg=PU, bd=2, relief="ridge", labelanchor="n", padx=14, pady=12)
+        values_card.pack(side="left", fill="both", expand=True, padx=(0, 8))
+        values_card.grid_columnconfigure(1, weight=1)
         entry_font = ("Segoe UI", 13)
+
         label_a_widget = tk.Label(values_card, text="⚖️ Mass", font=("Segoe UI", 12, "bold"),
-                                   bg="#ffffff", fg="#3B0A63", width=16, anchor="w")
+                                  bg="#ffffff", fg=PU_D, width=18, anchor="w")
         label_a_widget.grid(row=0, column=0, padx=(0, 10), pady=8, sticky="w")
         val_a = tk.StringVar()
-        entry_a = tk.Entry(values_card, textvariable=val_a, width=16, font=entry_font,
-                            relief="solid", bd=1, highlightthickness=1,
-                            highlightcolor="#8e44ec", highlightbackground="#d8c8f0")
+        entry_a = tk.Entry(values_card, textvariable=val_a, width=16, font=entry_font, relief="solid", bd=1,
+                           highlightthickness=1, highlightcolor="#8e44ec", highlightbackground="#d8c8f0")
         entry_a.grid(row=0, column=1, padx=6, pady=8, sticky="w")
         unit_a = tk.Label(values_card, text="g", font=("Segoe UI", 11, "italic"), bg="#ffffff", fg="#8e44ec")
         unit_a.grid(row=0, column=2, padx=6, sticky="w")
 
         label_b_widget = tk.Label(values_card, text="🔬 Mr (Molar Mass)", font=("Segoe UI", 12, "bold"),
-                                   bg="#ffffff", fg="#3B0A63", width=16, anchor="w")
+                                  bg="#ffffff", fg=PU_D, width=18, anchor="w")
         label_b_widget.grid(row=1, column=0, padx=(0, 10), pady=8, sticky="w")
         val_b = tk.StringVar()
-        entry_b = tk.Entry(values_card, textvariable=val_b, width=16, font=entry_font,
-                            relief="solid", bd=1, highlightthickness=1,
-                            highlightcolor="#8e44ec", highlightbackground="#d8c8f0")
+        entry_b = tk.Entry(values_card, textvariable=val_b, width=16, font=entry_font, relief="solid", bd=1,
+                           highlightthickness=1, highlightcolor="#8e44ec", highlightbackground="#d8c8f0")
         entry_b.grid(row=1, column=1, padx=6, pady=8, sticky="w")
         unit_b = tk.Label(values_card, text="g/mol", font=("Segoe UI", 11, "italic"), bg="#ffffff", fg="#8e44ec")
         unit_b.grid(row=1, column=2, padx=6, sticky="w")
 
-        # label text, unit, and whether the field is needed for each calc type
+        mr_card = tk.LabelFrame(values_row, text="  🔬 Mr Helper  ", font=self.header_font, bg="#ffffff",
+                                fg=PU, bd=2, relief="ridge", labelanchor="n", padx=10, pady=8)
+        mr_card.pack(side="left", fill="y")
+        mr_row = tk.Frame(mr_card, bg="#ffffff")
+        mr_row.pack(fill="x")
+        mr_formula = tk.StringVar()
+        mr_entry = tk.Entry(mr_row, textvariable=mr_formula, font=("Segoe UI", 13), width=12,
+                            relief="solid", bd=1, highlightthickness=1,
+                            highlightcolor="#8e44ec", highlightbackground="#d8c8f0")
+        mr_entry.pack(side="left", padx=(0, 8), ipady=3)
+        mr_out = tk.Label(mr_card, text="Type a formula such as\nCa(OH)2 or CuSO4,\nthen press Get Mr.",
+                          font=("Segoe UI", 10, "italic"), bg="#ffffff", fg="#6b5b8a",
+                          wraplength=250, justify="left", anchor="w")
+        mr_out.pack(fill="x", pady=(8, 0))
+
+        def get_mr():
+            try:
+                counts = parse_formula(mr_formula.get().strip())
+                if not counts:
+                    raise ValueError
+                parts, total = [], 0
+                for el, n in counts.items():
+                    if el not in AR:
+                        mr_out.config(text=f"⚠️ No Ar stored for '{el}'.", fg="#b00020")
+                        return
+                    parts.append(f"{n}×{AR[el]:g}")
+                    total += n * AR[el]
+                mr_out.config(text=f"{pretty_formula(mr_formula.get())}:\nMr = {' + '.join(parts)} = {total:g}",
+                              fg="#0b6e4f", font=("Segoe UI", 11, "bold"))
+                if calc_var.get() in (calc_types[0], calc_types[1]):
+                    val_b.set(f"{total:g}")
+                play_sound("atomole_calc_change")
+            except Exception:
+                mr_out.config(text="⚠️ Couldn't read that formula.", fg="#b00020")
+
+        tk.Button(mr_row, text="Get Mr", font=("Segoe UI", 11, "bold"), bg=PU, fg="white",
+                  activebackground="#7a2fd1", activeforeground="white", relief="flat",
+                  padx=12, pady=3, command=get_mr).pack(side="left")
+
         field_labels = {
-            "Mass & Mr → Moles": ("⚖️ Mass", "g", "🔬 Mr (Molar Mass)", "g/mol", True),
-            "Moles & Mr → Mass": ("⚙️ Moles", "mol", "🔬 Mr (Molar Mass)", "g/mol", True),
-            "Moles & Volume(dm³) → Concentration (mol/dm³)": ("⚙️ Moles", "mol", "🧫 Volume", "dm³", True),
-            "Concentration & Volume(dm³) → Moles": ("🌊 Concentration", "mol/dm³", "🧫 Volume", "dm³", True),
-            "Moles → Volume of gas at r.t.p. (dm³)": ("⚙️ Moles", "mol", "— not needed", "", False),
+            calc_types[0]: ("⚖️ Mass", "g", "🔬 Mr (Molar Mass)", "g/mol", True),
+            calc_types[1]: ("⚙️ Moles", "mol", "🔬 Mr (Molar Mass)", "g/mol", True),
+            calc_types[2]: ("⚙️ Moles", "mol", "🧫 Volume", "dm³", True),
+            calc_types[3]: ("🌊 Concentration", "mol/dm³", "🧫 Volume", "dm³", True),
+            calc_types[4]: ("⚙️ Moles", "mol", "— not needed", "", False),
         }
 
         def update_labels(event=None):
             a_lbl, a_unit, b_lbl, b_unit, b_needed = field_labels[calc_var.get()]
-            label_a_widget.config(text=a_lbl)
-            unit_a.config(text=a_unit)
-            label_b_widget.config(text=b_lbl)
-            unit_b.config(text=b_unit)
+            label_a_widget.config(text=a_lbl); unit_a.config(text=a_unit)
+            label_b_widget.config(text=b_lbl); unit_b.config(text=b_unit)
             if b_needed:
                 entry_b.config(state="normal", bg="#ffffff")
             else:
                 val_b.set("")
                 entry_b.config(state="disabled", bg="#f0eaf9")
-
-        combo.bind("<<ComboboxSelected>>", update_labels)
-        update_labels()
-
-        # --- Action buttons ---
-        btn_frame = tk.Frame(mfrm, bg="#f3ecff")
-        btn_frame.pack(pady=(0, 14))
-        tk.Button(btn_frame, text="Calculate ✨", font=self.btn_font, bg="#8e44ec", fg="white",
-                  activebackground="#7a2fd1", activeforeground="white", relief="flat",
-                  padx=18, pady=8, command=lambda: calculate()).grid(row=0, column=0, padx=8)
-        tk.Button(btn_frame, text="Clear 🗑️ ", font=self.btn_font, bg="#e5d6ff", fg="#5b21b6",
-                  activebackground="#d8c0ff", activeforeground="#5b21b6", relief="flat",
-                  padx=18, pady=8, command=lambda: clear_fields()).grid(row=0, column=1, padx=8)
-
-        # --- Card 3: result ---
-        result_card = tk.LabelFrame(mfrm, text="  ③  Result  ", font=self.header_font,
-                                    bg="#ffffff", fg="#5b21b6", bd=2, relief="ridge", labelanchor="n",
-                                    padx=10, pady=10)
-        result_card.pack(fill="both", expand=True)
-
-        steps_text = tk.Text(result_card, font=("Segoe UI", 12), wrap="word", bg="#ffffff",
-                              fg="#3B0A63", height=10, relief="flat", padx=10, pady=8)
-        steps_text.pack(fill="both", expand=True)
-        steps_text.tag_config("type", font=("Segoe UI", 13, "bold"), foreground="#5b21b6",
-                               spacing3=6)
-        steps_text.tag_config("formula", font=("Courier New", 12, "italic"), foreground="#6b5b8a",
-                               spacing3=6)
-        steps_text.tag_config("calc", font=("Courier New", 12), foreground="#333333", spacing3=6)
-        steps_text.tag_config("answer", font=("Courier New", 14, "bold"), foreground="#0b6e4f",
-                               background="#e2ffe0", spacing1=4, spacing3=4)
-        steps_text.tag_config("error", font=("Segoe UI", 12, "bold"), foreground="#b00020")
-        steps_text.insert(tk.END, "👋 Pick a calculation above, fill in the values, then hit Calculate ✨")
-        steps_text.config(state="disabled")
-
-        def clear_fields():
-            val_a.set("")
-            val_b.set("")
-            steps_text.config(state="normal")
-            steps_text.delete("1.0", tk.END)
-            steps_text.insert(tk.END, "👋 Pick a calculation above, fill in the values, then hit Calculate ✨")
-            steps_text.config(state="disabled")
-            play_sound("atomole_clear")  # was play_sound("click")
-
+            draw_scene()
+            draw_triangle()
 
         def on_calc_change(event=None):
             play_sound("atomole_calc_change")
             update_labels()
 
         combo.bind("<<ComboboxSelected>>", on_calc_change)
-        update_labels()
+
+        btn_frame = tk.Frame(left_col, bg=PU_L)
+        btn_frame.pack(pady=(0, 12))
+        tk.Button(btn_frame, text="Calculate ✨", font=self.btn_font, bg="#8e44ec", fg="white",
+                  activebackground="#7a2fd1", activeforeground="white", relief="flat",
+                  padx=18, pady=8, command=lambda: calculate()).grid(row=0, column=0, padx=8)
+        tk.Button(btn_frame, text="Clear 🗑️", font=self.btn_font, bg="#e5d6ff", fg=PU,
+                  activebackground="#d8c0ff", activeforeground=PU, relief="flat",
+                  padx=18, pady=8, command=lambda: clear_fields()).grid(row=0, column=1, padx=8)
+
+        result_card = tk.LabelFrame(left_col, text="  ③  Result  ", font=self.header_font, bg="#ffffff",
+                                    fg=PU, bd=2, relief="ridge", labelanchor="n", padx=10, pady=10)
+        result_card.pack(fill="both", expand=True)
+        steps_text = tk.Text(result_card, font=("Segoe UI", 12), wrap="word", bg="#ffffff", fg=PU_D,
+                             height=10, relief="flat", padx=10, pady=8)
+        steps_text.pack(fill="both", expand=True)
+        steps_text.tag_config("type", font=("Segoe UI", 13, "bold"), foreground="#ffffff",
+                              background=PU, spacing3=8)
+        steps_text.tag_config("formula", font=("Courier New", 12, "italic"), foreground="#6b5b8a", spacing3=6)
+        steps_text.tag_config("calc", font=("Courier New", 12), foreground="#333333", spacing3=6)
+        steps_text.tag_config("answer", font=("Courier New", 15, "bold"), foreground="#0b6e4f",
+                              background="#e2ffe0", spacing1=4, spacing3=4)
+        steps_text.tag_config("sci", font=("Courier New", 11, "bold"), foreground="#92400e",
+                              background="#fef3c7", spacing3=4)
+        steps_text.tag_config("error", font=("Segoe UI", 12, "bold"), foreground="#b00020")
+
+        HINT = "👋 Pick a calculation above, fill in the values, then hit Calculate ✨"
+
+        def set_result(lines):
+            steps_text.config(state="normal")
+            steps_text.delete("1.0", tk.END)
+            for text, tag in lines:
+                steps_text.insert(tk.END, text + "\n\n", tag)
+            steps_text.config(state="disabled")
+
+        set_result([(HINT, "calc")])
+
+        def clear_fields():
+            val_a.set(""); val_b.set("")
+            set_result([(HINT, "calc")])
+            play_sound("atomole_clear")
 
         def calculate():
             play_sound("atomole_calculate")
             ctype = calc_var.get()
             try:
-                a_str = val_a.get().strip()
-                b_str = val_b.get().strip()
+                a_str, b_str = val_a.get().strip(), val_b.get().strip()
                 a_num = float(a_str) if a_str else None
                 b_num = float(b_str) if b_str else None
-
-                lines = [(f"📌 {ctype}", "type")]
-
-                if ctype == "Mass & Mr → Moles":
+                if (a_num is not None and a_num < 0) or (b_num is not None and b_num < 0):
+                    raise ValueError("Values cannot be negative.")
+                lines = [(f" 📌 {ctype} ", "type")]
+                n = None
+                if ctype == calc_types[0]:
                     if a_num is None or b_num is None or b_num == 0:
                         raise ValueError("Please enter both mass and Mr (Mr must not be 0).")
-                    moles = a_num / b_num
-                    lines.append(("Formula:  moles = mass ÷ Mr", "formula"))
-                    lines.append((f"Substitute:  moles = {a_num} g ÷ {b_num} g/mol", "calc"))
-                    lines.append((f"✅ moles = {moles:.4g} mol", "answer"))
-
-                elif ctype == "Moles & Mr → Mass":
+                    n = a_num / b_num
+                    lines += [("Formula:  moles = mass ÷ Mr", "formula"),
+                              (f"Substitute:  moles = {a_num} g ÷ {b_num} g/mol", "calc"),
+                              (f"✅ moles = {n:.4g} mol", "answer")]
+                elif ctype == calc_types[1]:
                     if a_num is None or b_num is None:
                         raise ValueError("Please enter both moles and Mr.")
-                    mass = a_num * b_num
-                    lines.append(("Formula:  mass = moles × Mr", "formula"))
-                    lines.append((f"Substitute:  mass = {a_num} mol × {b_num} g/mol", "calc"))
-                    lines.append((f"✅ mass = {mass:.4g} g", "answer"))
-
-                elif ctype == "Moles & Volume(dm³) → Concentration (mol/dm³)":
+                    n = a_num
+                    lines += [("Formula:  mass = moles × Mr", "formula"),
+                              (f"Substitute:  mass = {a_num} mol × {b_num} g/mol", "calc"),
+                              (f"✅ mass = {a_num * b_num:.4g} g", "answer")]
+                elif ctype == calc_types[2]:
                     if a_num is None or b_num is None or b_num == 0:
                         raise ValueError("Please enter moles and volume (volume must not be 0).")
-                    conc = a_num / b_num
-                    lines.append(("Formula:  concentration = moles ÷ volume (dm³)", "formula"))
-                    lines.append((f"Substitute:  concentration = {a_num} mol ÷ {b_num} dm³", "calc"))
-                    lines.append((f"✅ concentration = {conc:.4g} mol/dm³", "answer"))
-
-                elif ctype == "Concentration & Volume(dm³) → Moles":
+                    n = a_num
+                    lines += [("Formula:  concentration = moles ÷ volume (dm³)", "formula"),
+                              (f"Substitute:  c = {a_num} mol ÷ {b_num} dm³", "calc"),
+                              (f"✅ concentration = {a_num / b_num:.4g} mol/dm³", "answer")]
+                elif ctype == calc_types[3]:
                     if a_num is None or b_num is None:
                         raise ValueError("Please enter concentration and volume.")
-                    moles = a_num * b_num
-                    lines.append(("Formula:  moles = concentration × volume (dm³)", "formula"))
-                    lines.append((f"Substitute:  moles = {a_num} mol/dm³ × {b_num} dm³", "calc"))
-                    lines.append((f"✅ moles = {moles:.4g} mol", "answer"))
-
-                elif ctype == "Moles → Volume of gas at r.t.p. (dm³)":
+                    n = a_num * b_num
+                    lines += [("Formula:  moles = concentration × volume (dm³)", "formula"),
+                              (f"Substitute:  moles = {a_num} mol/dm³ × {b_num} dm³", "calc"),
+                              (f"✅ moles = {n:.4g} mol", "answer")]
+                else:
                     if a_num is None:
                         raise ValueError("Please enter moles in the first field.")
-                    vol = a_num * 24
-                    lines.append(("Formula:  volume (dm³) = moles × 24 dm³/mol  (r.t.p. molar volume)", "formula"))
-                    lines.append((f"Substitute:  volume = {a_num} mol × 24 dm³/mol", "calc"))
-                    lines.append((f"✅ volume = {vol:.4g} dm³", "answer"))
-
-                steps_text.config(state="normal")
-                steps_text.delete("1.0", tk.END)
-                for text, tag in lines:
-                    steps_text.insert(tk.END, text + "\n\n", tag)
-                steps_text.config(state="disabled")
+                    n = a_num
+                    lines += [("Formula:  volume (dm³) = moles × 24 dm³/mol  (r.t.p.)", "formula"),
+                              (f"Substitute:  volume = {a_num} mol × 24 dm³/mol", "calc"),
+                              (f"✅ volume = {a_num * 24:.4g} dm³", "answer")]
+                if n is not None:
+                    lines.append((f"⚛ particles  N = n × 6.022×10²³ = {n:.4g} × 6.022×10²³ = {n * AVOGADRO:.3e}", "sci"))
+                set_result(lines)
                 play_sound("success")
-
             except ValueError as e:
-                steps_text.config(state="normal")
-                steps_text.delete("1.0", tk.END)
-                steps_text.insert(tk.END, f"⚠️  {e}", "error")
-                steps_text.config(state="disabled")
+                set_result([(f"⚠️  {e}", "error")])
                 play_sound("wrong")
 
-        ttk.Button(w, text="Close", command=lambda: (play_sound("window_close"), w.destroy())).pack(pady=(0, 10))
+        update_labels()
+        w.after(150, draw_banner)
+
+        def close_atomole():
+            atom_anim["running"] = False
+            if atom_anim["job"]:
+                try:
+                    canvas.after_cancel(atom_anim["job"])
+                except Exception:
+                    pass
+            play_sound("window_close")
+            w.destroy()
+
+        w.protocol("WM_DELETE_WINDOW", close_atomole)
+        close_btn.config(command=close_atomole)
 
     # -------------------------
     # Carbon Craft — organic chemistry explorer
@@ -2364,8 +3534,9 @@ class BondBalancerApp:
     def open_organic_window(self):
         play_sound("organic_open")
         w = tk.Toplevel(self.root)
+        enable_fullscreen(w)
         w.title("Carbon Craft — Organic Chemistry Explorer")
-        w.geometry("1000x660")
+        w.geometry("1040x780")
         w.configure(bg="#e6fff0")
 
         header = tk.Frame(w, bg="#0b6e4f")
@@ -2399,37 +3570,57 @@ class BondBalancerApp:
         canvas = tk.Canvas(right_frame, width=420, height=260, bg="#ffffff", highlightthickness=0)
         canvas.pack(pady=(10, 4))
 
-        info_text = tk.Text(right_frame, font=("Courier New", 11), wrap="word",
-                             bg="#f0fff7", fg="#0b3d2e", height=11)
+        info_text = make_rich_text(right_frame, bg="#f0fff7", fg="#0b3d2e", height=11)
         info_text.pack(fill="both", expand=True, padx=10, pady=(4, 10))
+        info_text.tag_config("gf", font=("Segoe UI", 17, "bold"), foreground="#0b4a24",
+                             background="#dff5e6", lmargin1=14, lmargin2=14)
         info_text.config(state="disabled")
 
         atom_colors = {"C": "#333333", "H": "#93c47d", "O": "#e06666"}
 
-        def draw_structure(data):
+        organic_anim = {"t": 0.0, "job": None, "key": None, "running": True}
+
+        def draw_structure(data, t=0.0):
             canvas.delete("all")
             atoms = data["atoms"]
             bonds = data["bonds"]
-            # draw bonds first (so atoms sit on top)
+            pulse = 1 + 0.08 * math.sin(t)
+
+            positions = []
+            for i, (sym, x, y) in enumerate(atoms):
+                jx = 3 * math.sin(t * 1.3 + i * 2.1)
+                jy = 3 * math.cos(t * 1.1 + i * 1.7)
+                positions.append((sym, x + jx, y + jy))
+
             for i, j, order in bonds:
-                x1, y1 = atoms[i][1], atoms[i][2]
-                x2, y2 = atoms[j][1], atoms[j][2]
+                x1, y1 = positions[i][1], positions[i][2]
+                x2, y2 = positions[j][1], positions[j][2]
                 if order == 1:
                     canvas.create_line(x1, y1, x2, y2, width=3, fill="#0b6e4f")
                 else:
-                    # double bond: two parallel offset lines
                     dx, dy = x2 - x1, y2 - y1
                     length = math.hypot(dx, dy) or 1
                     ox, oy = -dy / length * 5, dx / length * 5
                     canvas.create_line(x1 + ox, y1 + oy, x2 + ox, y2 + oy, width=3, fill="#0b6e4f")
                     canvas.create_line(x1 - ox, y1 - oy, x2 - ox, y2 - oy, width=3, fill="#0b6e4f")
-            # draw atoms
-            for sym, x, y in atoms:
-                r = 16 if sym == "C" else 12
+
+            for sym, x, y in positions:
+                r = (16 if sym == "C" else 12) * pulse
                 canvas.create_oval(x - r, y - r, x + r, y + r,
-                                    fill=atom_colors.get(sym, "#cccccc"), outline="#222222", width=1.5)
+                                   fill=atom_colors.get(sym, "#cccccc"), outline="#222222", width=1.5)
                 canvas.create_text(x, y, text=sym, font=("Helvetica", 10, "bold"),
-                                    fill="white" if sym != "H" else "#222222")
+                                   fill="white" if sym != "H" else "#222222")
+
+        def animate_organic():
+            if not organic_anim["running"] or organic_anim["key"] is None:
+                return
+            organic_anim["t"] += 0.12
+            try:
+                draw_structure(ORGANIC_DATA[organic_anim["key"]], organic_anim["t"])
+            except tk.TclError:
+                return
+            if organic_anim["running"]:
+                organic_anim["job"] = canvas.after(50, animate_organic)
 
         def show_selected(event=None):
             sel = listbox.curselection()
@@ -2437,30 +3628,54 @@ class BondBalancerApp:
                 return
             play_sound("organic_select")
             key = series_keys[sel[0]]
+            organic_anim["key"] = key
+            organic_anim["t"] = 0.0
             data = ORGANIC_DATA[key]
-            draw_structure(data)
 
-            info_text.config(state="normal")
-            info_text.delete("1.0", tk.END)
-            lines = [
-                f"✨ Homologous series: {key}",
-                f"General formula: {data['general_formula']}",
-                f"Functional group: {data['functional_group']}",
-                "",
-                f"Example: {data['example_name']} ({data['example_formula']})",
-                "",
-                f"Key reaction/test: {data['reaction']}",
-                "",
-                f"Common uses: {data['uses']}",
-            ]
-            for s in lines:
-                info_text.insert(tk.END, s + "\n")
-            info_text.config(state="disabled")
+            box = info_text
+            box.config(state="normal")
+            box.delete("1.0", tk.END)
+
+            box.insert(tk.END, key + "\n", "title")
+            box.insert(tk.END, "Example: " + data["example_name"] + ",  "
+                       + pretty_formula(data["example_formula"]) + "\n", "sub")
+
+            add_chip(box, "GENERAL FORMULA", "#0b6e4f")
+            box.insert(tk.END, "  ", "gf")
+            insert_formula(box, data["general_formula"], "gf")
+            box.insert(tk.END, "  ", "gf")
+            box.insert(tk.END, "\n\n")
+
+            add_chip(box, "FUNCTIONAL GROUP", "#1d4ed8")
+            box.insert(tk.END, data["functional_group"] + "\n\n", "para")
+
+            add_chip(box, "KEY REACTION / TEST", "#b45309")
+            box.insert(tk.END, pretty_formula(data["reaction"]).replace("->", "→") + "\n\n", "para")
+
+            add_chip(box, "COMMON USES", "#7c3aed")
+            box.insert(tk.END, pretty_formula(data["uses"]) + "\n", "para")
+
+            box.config(state="disabled")
 
         listbox.bind("<<ListboxSelect>>", show_selected)
+        series_keys0 = series_keys[0]
         show_selected()
+        organic_anim["key"] = series_keys0
+        organic_anim["t"] = 0.0
+        animate_organic()
 
-        ttk.Button(w, text="Close", command=lambda: (play_sound("window_close"), w.destroy())).pack(pady=(0, 10))
+        def close_organic():
+            organic_anim["running"] = False
+            if organic_anim["job"]:
+                try:
+                    canvas.after_cancel(organic_anim["job"])
+                except Exception:
+                    pass
+            play_sound("window_close")
+            w.destroy()
+
+        w.protocol("WM_DELETE_WINDOW", close_organic)
+        ttk.Button(w, text="Close", command=close_organic).pack(pady=(0, 10))
 
     # -------------------------
     # Volt Vault — full electrolysis explorer, covering the O-Level
@@ -2473,8 +3688,9 @@ class BondBalancerApp:
     def open_electrolysis_window(self):
         play_sound("electro_open")
         w = tk.Toplevel(self.root)
-        w.title("Volt Vault — Electrolysis, Selective Discharge, Extraction & Electroplating")
-        w.geometry("1040x700")
+        enable_fullscreen(w)
+        w.title("Volt Vault — Electrolysis: Full 5070 Syllabus Explorer")
+        w.geometry("1040x820")
         w.configure(bg="#1b1f3b")
 
         header = tk.Frame(w, bg="#1b1f3b")
@@ -2525,48 +3741,94 @@ class BondBalancerApp:
         right_frame = tk.Frame(main_frame, bg="#ffffff", bd=2, relief="groove")
         right_frame.pack(side="left", fill="both", expand=True)
 
-        canvas = tk.Canvas(right_frame, width=460, height=220, bg="#ffffff", highlightthickness=0)
+        canvas = tk.Canvas(right_frame, width=460, height=270, bg="#ffffff", highlightthickness=0)
         canvas.pack(pady=(10, 4))
 
-        result_text = tk.Text(right_frame, font=("Courier New", 11), wrap="word",
-                               bg="#fff9ea", fg="#4a3200", height=13)
+        result_text = tk.Text(right_frame, font=("Segoe UI", 13), wrap="word",
+                              bg="#fff9ea", fg="#3a2900", relief="flat", height=13,
+                              padx=22, pady=16, cursor="arrow")
         result_text.pack(fill="both", expand=True, padx=10, pady=(4, 10))
+
+        # --- text styles ---
+        result_text.tag_config("title", font=("Georgia", 16, "bold"), foreground="#1b1f3b", spacing3=4)
+        result_text.tag_config("electrodes", font=("Segoe UI", 12, "italic"), foreground="#6b5200", spacing3=16)
+        result_text.tag_config("cathode_chip", font=("Segoe UI", 11, "bold"), foreground="#ffffff",
+                               background="#1f9d55")
+        result_text.tag_config("anode_chip", font=("Segoe UI", 11, "bold"), foreground="#ffffff", background="#c2189b")
+        result_text.tag_config("side", font=("Segoe UI", 11, "italic"), foreground="#7a5200")
+        result_text.tag_config("product", font=("Segoe UI", 14, "bold"), foreground="#1b1f3b",
+                               spacing1=8, spacing3=4, lmargin1=6, lmargin2=6)
+        result_text.tag_config("eq_c", font=("Segoe UI", 15, "bold"), foreground="#0b4a24", background="#dff5e6")
+        result_text.tag_config("eq_a", font=("Segoe UI", 15, "bold"), foreground="#6b0b58", background="#fbe0f6")
+        result_text.tag_config("gap", spacing3=16)
+        result_text.tag_config("note_chip", font=("Segoe UI", 11, "bold"), foreground="#1b1f3b", background="#ffb300")
+        result_text.tag_config("note", font=("Segoe UI", 12), foreground="#4a3200",
+                               spacing1=8, lmargin1=6, lmargin2=6)
         result_text.config(state="disabled")
 
-        def draw_cell():
-            canvas.delete("all")
-            canvas.create_rectangle(60, 40, 400, 190, outline="#ffb300", width=3, fill="#12163a")
-            canvas.create_rectangle(120, 20, 140, 210, fill="#555555", outline="#1b1f3b")
-            canvas.create_rectangle(320, 20, 340, 210, fill="#555555", outline="#1b1f3b")
-            canvas.create_text(130, 12, text="Cathode (−)", font=("Helvetica", 10, "bold"))
-            canvas.create_text(330, 12, text="Anode (+)", font=("Helvetica", 10, "bold"))
+        cell_anim = {"t": 0.0, "job": None, "running": True}
 
-            # Vivid neon ions — cations (bright neon green) drift toward the
-            # cathode on the left, anions (bright neon magenta) drift toward
-            # the anode on the right. A soft glow halo behind each ion makes
-            # them pop against the dark electrolyte background.
-            cation_fill = "#39FF14"      # neon green
-            cation_glow = "#B9FFB0"
-            cation_outline = "#0E5C0E"
-            anion_fill = "#FF2EF2"       # neon magenta
-            anion_glow = "#FFC2FB"
-            anion_outline = "#7A0E63"
+        def draw_cell(t=0.0):
+            canvas.delete("all")
+            # --- row 1: labels (nothing else shares this row) ---
+            canvas.create_text(130, 14, text="Cathode (−)", font=("Segoe UI", 11, "bold"), fill="#1f9d55")
+            canvas.create_text(330, 14, text="Anode (+)", font=("Segoe UI", 11, "bold"), fill="#c2189b")
+
+            # --- row 2: battery and wires ---
+            canvas.create_line(130, 40, 205, 40, fill="#333333", width=2)
+            canvas.create_line(255, 40, 330, 40, fill="#333333", width=2)
+            canvas.create_line(130, 40, 130, 62, fill="#333333", width=2)
+            canvas.create_line(330, 40, 330, 62, fill="#333333", width=2)
+            canvas.create_rectangle(205, 30, 255, 50, fill="#444444", outline="#222222")
+            canvas.create_text(230, 40, text="DC", font=("Segoe UI", 9, "bold"), fill="#ffd700")
+
+            # --- beaker ---
+            canvas.create_rectangle(60, 85, 400, 225, outline="#ffb300", width=3, fill="#12163a")
+            canvas.create_line(62, 92, 398, 92, fill="#2a2f5c", width=2)
+
+            # --- electrodes ---
+            canvas.create_rectangle(120, 62, 140, 240, fill="#888888", outline="#1b1f3b")
+            canvas.create_rectangle(320, 62, 340, 240, fill="#888888", outline="#1b1f3b")
+
+            cation_fill, cation_glow, cation_outline = "#39FF14", "#B9FFB0", "#0E5C0E"
+            anion_fill, anion_glow, anion_outline = "#FF2EF2", "#FFC2FB", "#7A0E63"
 
             for i in range(4):
-                cy = 65 + i * 30
-                cx = 165 + (i % 2) * 12
-                canvas.create_oval(cx - 12, cy - 12, cx + 12, cy + 12, fill=cation_glow, outline="")
-                canvas.create_oval(cx - 8, cy - 8, cx + 8, cy + 8, fill=cation_fill, outline=cation_outline, width=2)
-                canvas.create_text(cx, cy, text="+", font=("Helvetica", 9, "bold"), fill="#0E5C0E")
+                by = 112 + i * 28
+                phase = (t * 0.6 + i * 0.25) % 1.0
+                cx_pos = 230 - phase * (230 - 165)
+                canvas.create_oval(cx_pos - 12, by - 12, cx_pos + 12, by + 12, fill=cation_glow, outline="")
+                canvas.create_oval(cx_pos - 8, by - 8, cx_pos + 8, by + 8, fill=cation_fill,
+                                   outline=cation_outline, width=2)
+                canvas.create_text(cx_pos, by, text="+", font=("Helvetica", 9, "bold"), fill="#0E5C0E")
 
-                ax = 295 - (i % 2) * 12
-                ay = 65 + i * 30
-                canvas.create_oval(ax - 12, ay - 12, ax + 12, ay + 12, fill=anion_glow, outline="")
-                canvas.create_oval(ax - 8, ay - 8, ax + 8, ay + 8, fill=anion_fill, outline=anion_outline, width=2)
-                canvas.create_text(ax, ay, text="−", font=("Helvetica", 9, "bold"), fill="#7A0E63")
+                phase2 = (t * 0.6 + i * 0.25 + 0.1) % 1.0
+                ax_pos = 230 + phase2 * (295 - 230)
+                canvas.create_oval(ax_pos - 12, by - 12, ax_pos + 12, by + 12, fill=anion_glow, outline="")
+                canvas.create_oval(ax_pos - 8, by - 8, ax_pos + 8, by + 8, fill=anion_fill,
+                                   outline=anion_outline, width=2)
+                canvas.create_text(ax_pos, by, text="−", font=("Helvetica", 9, "bold"), fill="#7A0E63")
 
-            canvas.create_text(230, 220, text="Ions migrate through the electrolyte to opposite electrodes",
-                                font=("Segoe UI", 9, "italic"))
+            # --- bubbles rising beside each electrode ---
+            for i in range(3):
+                bub_y = 215 - ((t * 20 + i * 45) % 120)
+                canvas.create_oval(143, bub_y - 4, 151, bub_y + 4, outline="#cfd8ff", width=1)
+                canvas.create_oval(309, bub_y - 4, 317, bub_y + 4, outline="#ffe9b0", width=1)
+
+            # --- caption (now inside the canvas) ---
+            canvas.create_text(230, 258, text="Ions migrate through the electrolyte to opposite electrodes",
+                               font=("Segoe UI", 9, "italic"), fill="#555555")
+
+        def animate_cell():
+            if not cell_anim["running"]:
+                return
+            cell_anim["t"] += 0.05
+            try:
+                draw_cell(cell_anim["t"])
+            except tk.TclError:
+                return
+            if cell_anim["running"]:
+                cell_anim["job"] = canvas.after(60, animate_cell)
 
         def show_selected(event=None):
             sel = listbox.curselection()
@@ -2575,99 +3837,116 @@ class BondBalancerApp:
             play_sound("electro_select")
             key = electrolyte_keys[sel[0]]
             electrodes, c_prod, c_eq, a_prod, a_eq, note = ELECTROLYSIS_DATA[key]
-            draw_cell()
 
-            result_text.config(state="normal")
-            result_text.delete("1.0", tk.END)
-            lines = [
-                f"✨ Electrolyte: {key}",
-                f"Electrodes used: {electrodes}",
-                "",
-                f"🔹 At the CATHODE (−): {c_prod}",
-                f"    Half-equation: {c_eq}",
-                "",
-                f"🔸 At the ANODE (+): {a_prod}",
-                f"    Half-equation: {a_eq}",
-                "",
-                f"Note: {note}",
-            ]
-            for s in lines:
-                result_text.insert(tk.END, s + "\n")
-            result_text.config(state="disabled")
+            t = result_text
+            t.config(state="normal")
+            t.delete("1.0", tk.END)
+
+            t.insert(tk.END, key + "\n", "title")
+            t.insert(tk.END, "Electrodes: " + electrodes + "\n", "electrodes")
+
+            t.insert(tk.END, " CATHODE (−) ", "cathode_chip")
+            t.insert(tk.END, "   reduction\n", "side")
+            t.insert(tk.END, c_prod + "\n", "product")
+            t.insert(tk.END, "  " + c_eq + "  ", "eq_c")
+            t.insert(tk.END, "\n\n", "gap")
+
+            t.insert(tk.END, " ANODE (+) ", "anode_chip")
+            t.insert(tk.END, "   oxidation\n", "side")
+            t.insert(tk.END, a_prod + "\n", "product")
+            t.insert(tk.END, "  " + a_eq + "  ", "eq_a")
+            t.insert(tk.END, "\n\n", "gap")
+
+            t.insert(tk.END, " NOTE ", "note_chip")
+            t.insert(tk.END, "\n" + note + "\n", "note")
+
+            t.config(state="disabled")
 
         listbox.bind("<<ListboxSelect>>", show_selected)
         show_selected()
+        animate_cell()
+
 
         # ============ Tab 2: Selective discharge rules ============
         rules_frame = tk.Frame(tab_rules, bg="#fff6e0", padx=16, pady=16)
         rules_frame.pack(fill="both", expand=True)
 
         # --- Visual: at-a-glance diagram of which ion "wins" at each electrode ---
-        rules_canvas = tk.Canvas(rules_frame, width=900, height=190, bg="#fffdf5", highlightthickness=0)
+        rules_canvas = tk.Canvas(rules_frame, width=940, height=230, bg="#fffdf5", highlightthickness=0)
         rules_canvas.pack(pady=(0, 12))
 
         def draw_reactivity_diagram():
             c = rules_canvas
             c.delete("all")
-            # ---- Cathode ladder (left) ----
-            c.create_text(165, 14, text="⚡ CATHODE (−): which cation wins?",
-                           font=("Segoe UI", 11, "bold"), fill="#1b1f3b")
-            c.create_rectangle(20, 28, 310, 92, fill="#ffe0e0", outline="#cc4444", width=2)
-            c.create_text(165, 40, text="NOT discharged (too reactive) — H⁺ wins instead",
-                           font=("Segoe UI", 8, "bold"), fill="#8a1f1f")
-            c.create_text(165, 64, text="K⁺   Na⁺   Ca²⁺   Mg²⁺   Al³⁺", font=("Consolas", 11, "bold"), fill="#8a1f1f")
-            c.create_rectangle(20, 98, 310, 162, fill="#e2ffe0", outline="#2e8b2e", width=2)
-            c.create_text(165, 110, text="DISCHARGED in preference to H⁺",
-                           font=("Segoe UI", 8, "bold"), fill="#1f5c1f")
-            c.create_text(165, 134, text="Zn²⁺   Fe²⁺   Pb²⁺   Cu²⁺   Ag⁺", font=("Consolas", 11, "bold"), fill="#1f5c1f")
-            c.create_text(165, 178, text="↓ less reactive metals are discharged more easily ↓",
-                           font=("Segoe UI", 8, "italic"), fill="#555555")
+            ink = "#1b1f3b"
 
-            # ---- Anode ladder (right) ----
-            c.create_text(625, 14, text="⚡ ANODE (+): which anion wins?",
-                           font=("Segoe UI", 11, "bold"), fill="#1b1f3b")
-            c.create_rectangle(460, 28, 790, 66, fill="#fff0c0", outline="#cc8800", width=2)
-            c.create_text(625, 47, text="1️⃣    Halide (Cl⁻, Br⁻, I⁻) — discharged first, if concentrated",
-                           font=("Segoe UI", 9, "bold"), fill="#7a5200")
-            c.create_rectangle(460, 71, 790, 109, fill="#fff8dc", outline="#cc8800", width=2)
-            c.create_text(625, 90, text="2️⃣     OH⁻ (from water) — discharged next, gives O₂",
-                           font=("Segoe UI", 9, "bold"), fill="#7a5200")
-            c.create_rectangle(460, 114, 790, 152, fill="#f0f0f0", outline="#888888", width=2)
-            c.create_text(625, 133, text="3️⃣    SO₄²⁻ / NO₃⁻ — NEVER discharged (spectator ions)",
-                           font=("Segoe UI", 9, "bold"), fill="#555555")
-            c.create_text(625, 172, text="↓ priority order for discharge at the anode ↓",
-                           font=("Segoe UI", 8, "italic"), fill="#555555")
+            # ---- Cathode (left) ----
+            c.create_text(230, 16, text="CATHODE (−): which cation wins?",
+                          font=("Georgia", 13, "bold"), fill=ink)
+            c.create_rectangle(20, 34, 440, 104, fill="#ffe0e0", outline="#cc4444", width=2)
+            c.create_text(230, 53, text="Too reactive: NOT discharged (H⁺ wins instead)",
+                          font=("Segoe UI", 10, "bold"), fill="#8a1f1f")
+            c.create_text(230, 81, text="K⁺     Na⁺     Ca²⁺     Mg²⁺     Al³⁺",
+                          font=("Segoe UI", 14, "bold"), fill="#8a1f1f")
+            c.create_rectangle(20, 114, 440, 184, fill="#e2ffe0", outline="#2e8b2e", width=2)
+            c.create_text(230, 133, text="Less reactive: DISCHARGED in preference to H⁺",
+                          font=("Segoe UI", 10, "bold"), fill="#1f5c1f")
+            c.create_text(230, 161, text="Zn²⁺     Fe²⁺     Pb²⁺     Cu²⁺     Ag⁺",
+                          font=("Segoe UI", 14, "bold"), fill="#1f5c1f")
+            c.create_text(230, 207, text="↓  the less reactive the metal, the more easily it is discharged  ↓",
+                          font=("Segoe UI", 9, "italic"), fill="#555555")
+
+            # ---- Anode (right) ----
+            c.create_text(710, 16, text="ANODE (+): which anion wins?",
+                          font=("Georgia", 13, "bold"), fill=ink)
+            rows = [
+                ("#fff0c0", "#cc8800", "#7a5200", "1.  Halide (Cl⁻, Br⁻, I⁻): first, if concentrated"),
+                ("#fff8dc", "#cc8800", "#7a5200", "2.  OH⁻ (from water): next, gives O₂"),
+                ("#f0f0f0", "#888888", "#555555", "3.  SO₄²⁻ / NO₃⁻: never discharged"),
+            ]
+            for i, (fill, line, txt, label) in enumerate(rows):
+                y = 34 + i * 52
+                c.create_rectangle(500, y, 920, y + 44, fill=fill, outline=line, width=2)
+                c.create_text(710, y + 22, text=label, font=("Segoe UI", 10, "bold"), fill=txt)
+            c.create_text(710, 207, text="↓  priority order for discharge at the anode  ↓",
+                          font=("Segoe UI", 9, "italic"), fill="#555555")
 
         draw_reactivity_diagram()
 
-        rules_text = tk.Text(rules_frame, font=("Segoe UI", 12), wrap="word",
-                              bg="#fffdf5", fg="#3a2900")
+        rules_text = make_rich_text(rules_frame, bg="#fffdf5", fg="#3a2900")
         rules_text.pack(fill="both", expand=True)
-        rules_content = (
-            "⚡ CATHODE (−): who wins?\n"
-            "❌ K⁺ Na⁺ Ca²⁺ Mg²⁺ Al³⁺ → too reactive, NEVER discharged. H⁺ wins instead → H₂ gas.\n"
-            "✔️ Zn²⁺ Fe²⁺ Pb²⁺ Cu²⁺ Ag⁺ → less reactive, THESE get discharged → metal deposits.\n"
-            "💡 Rule of thumb: the weaker metal ion always loses to the stronger one... wait, wins! "
-            "Less reactive = easier to discharge.\n\n"
+        box = rules_text
 
-            "⚡ ANODE (+): who wins?\n"
-            "① Halide ion (Cl⁻, Br⁻, I⁻) — discharged first, IF concentrated enough.\n"
-            "② OH⁻ (from water) — discharged if no halide, or halide is too dilute.\n"
-            "③ SO₄²⁻ / NO₃⁻ — NEVER discharged. They just sit there watching.\n\n"
+        box.insert(tk.END, "Selective Discharge Rules\n", "title")
+        box.insert(tk.END, "Which ion is discharged when several ions compete?\n", "sub")
 
-            "🔎 Molten vs aqueous — don't mix these up!\n"
-            "• Molten compound = no water = no H⁺/OH⁻ around → the only ions present ARE discharged,\n"
-            "  no matter how reactive the metal is.\n"
-            "• Aqueous solution = water's ions (H⁺, OH⁻) are always competing too.\n\n"
+        add_chip(box, "CATHODE (−)  ·  positive ions", "#1f9d55")
+        add_line(box,
+                 "Too reactive, never discharged: K⁺  Na⁺  Ca²⁺  Mg²⁺  Al³⁺. H⁺ is discharged instead, giving H₂ gas.")
+        add_line(box, "Less reactive, discharged: Zn²⁺  Fe²⁺  Pb²⁺  Cu²⁺  Ag⁺. The metal is deposited.")
+        add_line(box, "Rule of thumb: the less reactive the metal, the more easily its ion is discharged.")
+        box.insert(tk.END, "\n")
 
-            "🔌 Active electrodes (e.g. copper anode)?\n"
-            "The electrode itself dissolves instead of any ion reacting. No ion race happens.\n\n"
+        add_chip(box, "ANODE (+)  ·  negative ions", "#c2189b")
+        add_line(box, "1st: a halide ion (Cl⁻, Br⁻, I⁻), if the solution is concentrated enough.")
+        add_line(box, "2nd: OH⁻ from water, if there is no halide or it is too dilute. This gives O₂.")
+        add_line(box, "Never: SO₄²⁻ and NO₃⁻ stay in solution as spectator ions.")
+        box.insert(tk.END, "\n")
 
-            "📈 Want more product?\n"
-            "Turn up the current, or run it for longer. Simple as that.\n"
-        )
-        rules_text.insert(tk.END, rules_content)
-        rules_text.config(state="disabled")
+        add_chip(box, "MOLTEN  vs  AQUEOUS", "#1d4ed8")
+        add_line(box,
+                 "Molten: no water, so no H⁺ or OH⁻. The only ions present are discharged, however reactive the metal is.")
+        add_line(box, "Aqueous: water's H⁺ and OH⁻ are always competing as well.")
+        box.insert(tk.END, "\n")
+
+        add_chip(box, "ACTIVE ELECTRODES", "#7a5200")
+        add_line(box, "An active anode (e.g. copper) dissolves itself, so no anion is discharged.")
+        box.insert(tk.END, "\n")
+
+        add_chip(box, "WANT MORE PRODUCT?", "#ffb300", fg="#1b1f3b")
+        add_line(box, "Increase the current, or run the electrolysis for longer.")
+        box.config(state="disabled")
+
 
         # ============ Tab 3: Extraction & electroplating ============
         apps_frame = tk.Frame(tab_apps, bg="#fff6e0", padx=16, pady=16)
@@ -2677,25 +3956,29 @@ class BondBalancerApp:
         apps_canvas = tk.Canvas(apps_frame, width=900, height=190, bg="#12163a", highlightthickness=0)
         apps_canvas.pack(pady=(0, 12))
 
-        def draw_electroplating_diagram():
+        plating_anim = {"t": 0.0, "job": None, "running": True}
+
+        def draw_electroplating_diagram(t=0.0):
             c = apps_canvas
             c.delete("all")
             c.create_text(450, 16, text="🎨 Electroplating an object with metal", font=("Segoe UI", 11, "bold"),
-                           fill="#ffd966")
-            # electrolyte tank
+                          fill="#ffd966")
             c.create_rectangle(150, 35, 750, 165, outline="#ffb300", width=3, fill="#12163a")
-            # electrodes: object = cathode (grey), plating metal = anode (gold)
             c.create_rectangle(225, 20, 245, 180, fill="#c0c0c0", outline="#ffffff", width=1)
             c.create_rectangle(655, 20, 675, 180, fill="#d4af37", outline="#ffffff", width=1)
             c.create_text(235, 12, text="Object (Cathode −)", font=("Helvetica", 9, "bold"), fill="#ffffff")
             c.create_text(665, 12, text="Plating metal (Anode +)", font=("Helvetica", 9, "bold"), fill="#ffffff")
 
-            # vivid neon metal-ion cations migrating anode -> cathode
-            metal_fill = "#39FF14"
-            metal_glow = "#B9FFB0"
+            # growing metal layer on the object — cycles to show repeated deposition
+            cycle = (t * 6) % 100
+            layer_w = 4 + (cycle / 100) * 10
+            c.create_rectangle(245, 20, 245 + layer_w, 180, fill="#39FF14", outline="")
+
+            metal_fill, metal_glow = "#39FF14", "#B9FFB0"
             for i in range(5):
                 y = 55 + i * 22
-                x = 630 - i * 18
+                phase = (t * 0.5 + i * 0.2) % 1.0
+                x = 630 - phase * (630 - 255)
                 c.create_oval(x - 11, y - 11, x + 11, y + 11, fill=metal_glow, outline="")
                 c.create_oval(x - 7, y - 7, x + 7, y + 7, fill=metal_fill, outline="#0E5C0E", width=2)
                 c.create_text(x, y, text="+", font=("Helvetica", 8, "bold"), fill="#0E5C0E")
@@ -2703,33 +3986,69 @@ class BondBalancerApp:
             c.create_text(450, 172, text="Metal ions leave the anode and deposit as a thin, even coating on the object",
                           font=("Segoe UI", 9, "italic"), fill="#ffd966")
 
-        draw_electroplating_diagram()
+        def animate_plating():
+            if not plating_anim["running"]:
+                return
+            plating_anim["t"] += 0.08
+            try:
+                draw_electroplating_diagram(plating_anim["t"])
+            except tk.TclError:
+                return
+            if plating_anim["running"]:
+                plating_anim["job"] = apps_canvas.after(60, animate_plating)
 
-        apps_text = tk.Text(apps_frame, font=("Segoe UI", 12), wrap="word",
-                             bg="#fffdf5", fg="#3a2900")
-        apps_text.pack(fill="both", expand=True)
-        apps_content = (
-            "🏭 EXTRACTING ALUMINIUM\n"
-            "Al is too reactive for the 'heat it with carbon' trick → electrolysis instead.\n"
-            "• Al₂O₃ dissolved in molten cryolite — this just lowers the melting point (saves energy).\n"
-            "• Cathode: Al³⁺ + 3e⁻ → Al  (liquid metal collects at the bottom)\n"
-            "• Anode: 2O²⁻ − 4e⁻ → O₂  (burns the carbon anode away — needs replacing often!)\n\n"
+        animate_plating()
 
-            "🏭 PURIFYING COPPER\n"
-            "• Dirty copper = anode. Clean copper sheet = cathode. CuSO₄ solution = electrolyte.\n"
-            "• Anode dissolves: Cu − 2e⁻ → Cu²⁺\n"
-            "• Cathode grows pure: Cu²⁺ + 2e⁻ → Cu\n"
-            "• Gold & silver impurities don't dissolve — they drop as 'anode sludge' (literally free money).\n\n"
+        apps_text = make_rich_text(apps_frame, bg="#fffdf5", fg="#3a2900")
+        apps_text.pack(fill="both", expand=True, pady=(8, 0))
+        box = apps_text
 
-            "🎨 ELECTROPLATING\n"
-            "• Object to plate = cathode. Plating metal = anode. Solution has the plating metal's ions.\n"
-            "• Anode dissolves → same metal deposits evenly on the object.\n"
-            "• Why bother? Stops rust, looks nicer, or coats something cheap in something fancy.\n"
-        )
-        apps_text.insert(tk.END, apps_content)
-        apps_text.config(state="disabled")
+        box.insert(tk.END, "Industrial Uses of Electrolysis\n", "title")
+        box.insert(tk.END, "Three important 5070 applications\n", "sub")
 
-        ttk.Button(w, text="Close", command=lambda: (play_sound("window_close"), w.destroy())).pack(pady=(0, 10))
+        add_chip(box, "EXTRACTING ALUMINIUM", "#475569")
+        add_line(box, "Al is too reactive to extract by heating with carbon, so electrolysis is used instead.")
+        add_line(box, "Al₂O₃ is dissolved in molten cryolite, which lowers the melting point and saves energy.")
+        box.insert(tk.END, "Cathode (−):  ", "para")
+        add_eq(box, "Al³⁺ + 3e⁻ → Al", "#dff5e6", "#0b4a24")
+        box.insert(tk.END, "Anode (+):  ", "para")
+        add_eq(box, "2O²⁻ − 4e⁻ → O₂", "#fbe0f6", "#6b0b58")
+        add_line(box,
+                 "Liquid aluminium collects at the bottom. The oxygen burns away the carbon anodes, so they need replacing often.")
+        box.insert(tk.END, "\n")
+
+        add_chip(box, "PURIFYING COPPER", "#b45309")
+        add_line(box,
+                 "Impure copper is the anode, a pure copper sheet is the cathode, and CuSO₄(aq) is the electrolyte.")
+        box.insert(tk.END, "Anode (+):  ", "para")
+        add_eq(box, "Cu − 2e⁻ → Cu²⁺", "#fbe0f6", "#6b0b58")
+        box.insert(tk.END, "Cathode (−):  ", "para")
+        add_eq(box, "Cu²⁺ + 2e⁻ → Cu", "#dff5e6", "#0b4a24")
+        add_line(box,
+                 "Unreactive impurities such as gold and silver do not dissolve. They fall away as anode sludge, a valuable by-product.")
+        box.insert(tk.END, "\n")
+
+        add_chip(box, "ELECTROPLATING", "#7c3aed")
+        add_line(box,
+                 "The object to be plated is the cathode, the plating metal is the anode, and the solution contains ions of the plating metal.")
+        add_line(box, "The anode dissolves and the same metal is deposited evenly on the object.")
+        add_line(box, "Why bother? It stops rust, improves appearance, or coats a cheap metal in a more valuable one.")
+        box.config(state="disabled")
+
+        def close_volt():
+            cell_anim["running"] = False
+            plating_anim["running"] = False
+            for job_dict, widget in ((cell_anim, canvas), (plating_anim, apps_canvas)):
+                if job_dict["job"]:
+                    try:
+                        widget.after_cancel(job_dict["job"])
+                    except Exception:
+                        pass
+            play_sound("window_close")
+            w.destroy()
+
+        w.protocol("WM_DELETE_WINDOW", close_volt)
+        ttk.Button(w, text="Close", command=close_volt).pack(pady=(0, 10))
 
     # -------------------------
     # Top Scores window — permanent Hall of Fame (names + scores only),
@@ -2738,15 +4057,13 @@ class BondBalancerApp:
     # -------------------------
     def show_top_scores(self):
         play_sound("top_scores_open")
-        top = load_top_scores()
         win = tk.Toplevel(self.root)
+        enable_fullscreen(win)
         win.title("🏅 Top Scores — Hall of Fame")
-        win.geometry("640x540")
+        win.geometry("640x600")
         win.configure(bg="#fff3d6")
+        win.transient(self.root)
 
-        # Packing this outer frame with expand=True (no fill) centers it
-        # vertically AND horizontally in the window, giving equal space
-        # above and below the content.
         outer = tk.Frame(win, bg="#fff3d6")
         outer.pack(expand=True)
 
@@ -2756,11 +4073,12 @@ class BondBalancerApp:
                  font=("Segoe UI", 10, "italic"), bg="#fff3d6", fg="#7A2E00").pack(pady=(0, 16))
 
         ts_style = ttk.Style()
-        ts_style.configure("TopScores.Treeview", font=self.header_font, rowheight=36)
+        ts_style.configure("TopScores.Treeview", font=self.header_font, rowheight=28)
         ts_style.configure("TopScores.Treeview.Heading", font=self.btn_font)
 
         columns = ("rank", "name", "score", "bonus")
-        tree = ttk.Treeview(outer, columns=columns, show="headings", height=10, style="TopScores.Treeview")
+        tree = ttk.Treeview(outer, columns=columns, show="headings", height=10,
+                            style="TopScores.Treeview")
         tree.heading("rank", text="#")
         tree.heading("name", text="Name")
         tree.heading("score", text="Score /10")
@@ -2771,16 +4089,58 @@ class BondBalancerApp:
         tree.column("bonus", width=130, anchor="center")
         tree.pack()
 
-        if not top:
-            tk.Label(outer, text="No top scores yet — reset the leaderboard after a great\nquiz session to add players here!",
-                     font=("Segoe UI", 11), bg="#fff3d6", fg="#7A2E00", justify="center").pack(pady=(18, 0))
-        else:
+        empty_label = tk.Label(
+            outer,
+            text="No top scores yet — reset the leaderboard after a great\n"
+                 "quiz session to add players here!",
+            font=("Segoe UI", 11), bg="#fff3d6", fg="#7A2E00", justify="center")
+
+        def fill_tree():
+            for row in tree.get_children():
+                tree.delete(row)
+            top = load_top_scores()
             for i, e in enumerate(top, start=1):
                 tree.insert("", tk.END, values=(i, e.get("name", "Anon"),
-                                                 f"{e.get('score', 0)}/10", f"+{e.get('bonus', 0)}"))
+                                                f"{e.get('score', 0)}/10",
+                                                f"+{e.get('bonus', 0)}"))
+            if top:
+                empty_label.pack_forget()
+                erase_btn.config(state="normal")
+            else:
+                empty_label.pack(pady=(18, 0))
+                erase_btn.config(state="disabled")
 
-        tk.Button(outer, text="Close", font=self.btn_font, bg="#f6b26b",
-                  command=win.destroy).pack(pady=(20, 0))
+        def erase_all():
+            if not load_top_scores():
+                return
+            play_sound("reset_open")
+            if not messagebox.askyesno(
+                    "Erase All-Time Legends?",
+                    "This will permanently delete EVERY name in the all-time "
+                    "Top Scores hall of fame. This cannot be undone.\n\nContinue?",
+                    icon="warning", parent=win):
+                play_sound("confirm_no")
+                return
+            play_sound("confirm_yes")
+            clear_top_scores()
+            fill_tree()
+            messagebox.showinfo("Hall of Fame Cleared",
+                                "🗑️ All-time Top Scores have been erased.", parent=win)
+
+        btn_row = tk.Frame(outer, bg="#fff3d6")
+        btn_row.pack(pady=(20, 0))
+        erase_btn = tk.Button(btn_row, text="🗑️ Erase All-Time Legends", font=self.btn_font,
+                              bg="#ef233c", fg="black", disabledforeground="black",
+                              activebackground="#c1121f", activeforeground="black",
+                              relief="flat", padx=14, pady=6,
+                              cursor="hand2", command=erase_all)
+        erase_btn.grid(row=0, column=0, padx=8)
+        tk.Button(btn_row, text="Close", font=self.btn_font, bg="#f6b26b", relief="flat",
+                  padx=14, pady=6, command=win.destroy).grid(row=0, column=1, padx=8)
+
+        fill_tree()
+
+
 
 # ----------------------------
 # Program entry point
